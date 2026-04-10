@@ -1,0 +1,451 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f2f5;
+    color: #1c1e21;
+    min-height: 100vh;
+}
+
+header {
+    background: #1877f2;
+    color: white;
+    padding: 1.5rem 2rem;
+    text-align: center;
+}
+
+header h1 {
+    font-size: 1.6rem;
+    margin-bottom: 0.25rem;
+}
+
+.subtitle {
+    opacity: 0.85;
+    font-size: 0.95rem;
+}
+
+main {
+    max-width: 1100px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+/* Upload Section */
+.upload-section {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 2rem;
+}
+
+.dropzone {
+    border: 2.5px dashed #c4c9d4;
+    border-radius: 10px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fafbfc;
+    margin-bottom: 1rem;
+}
+
+.dropzone:hover,
+.dropzone.dragover {
+    border-color: #1877f2;
+    background: #e7f3ff;
+}
+
+.dropzone-icon {
+    font-size: 2.5rem;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.dropzone p {
+    margin: 0.25rem 0;
+}
+
+.muted {
+    color: #65676b;
+    font-size: 0.85rem;
+}
+
+/* File preview thumbnails */
+.file-previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+.file-preview {
+    position: relative;
+    width: 90px;
+    height: 90px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid #e4e6eb;
+}
+
+.file-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.file-preview .remove-preview {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: rgba(0,0,0,0.6);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+/* Buttons */
+.btn {
+    padding: 0.7rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #1877f2;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #166fe5;
+}
+
+.btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+}
+
+.btn-copy {
+    background: #e4e6eb;
+    color: #1c1e21;
+}
+
+.btn-copy:hover {
+    background: #d8dadf;
+}
+
+.btn-copy.copied {
+    background: #31a24c;
+    color: white;
+}
+
+.btn-danger {
+    background: #fa3e3e;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #e02020;
+}
+
+.btn-save {
+    background: #31a24c;
+    color: white;
+}
+
+.btn-save:hover {
+    background: #2b9042;
+}
+
+.btn-add-photos {
+    background: #e4e6eb;
+    color: #1c1e21;
+}
+
+.btn-add-photos:hover {
+    background: #d8dadf;
+}
+
+/* Listings */
+.listings-section h2 {
+    margin-bottom: 1rem;
+    font-size: 1.3rem;
+}
+
+.empty-state {
+    text-align: center;
+    color: #65676b;
+    padding: 3rem;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.listing-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+
+.listing-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #e4e6eb;
+}
+
+.listing-header h3 {
+    font-size: 1rem;
+    color: #65676b;
+}
+
+.listing-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.listing-body {
+    display: flex;
+    gap: 1.25rem;
+    padding: 1.25rem;
+}
+
+.listing-photos {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.listing-photos img {
+    width: 140px;
+    height: 140px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #e4e6eb;
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.listing-photos img:hover {
+    transform: scale(1.05);
+}
+
+.photo-thumb-row {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.photo-thumb-row img {
+    width: 42px;
+    height: 42px;
+    border-radius: 4px;
+}
+
+.listing-fields {
+    flex: 1;
+    min-width: 0;
+}
+
+.field-group {
+    margin-bottom: 1rem;
+}
+
+.field-group:last-child {
+    margin-bottom: 0;
+}
+
+.field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.3rem;
+}
+
+.field-label label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #65676b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.field-group textarea,
+.field-group input[type="text"] {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1.5px solid #e4e6eb;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.15s;
+}
+
+.field-group textarea:focus,
+.field-group input[type="text"]:focus {
+    outline: none;
+    border-color: #1877f2;
+}
+
+.field-group textarea {
+    min-height: 70px;
+}
+
+/* Prompt Editor */
+.prompt-section {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+
+.prompt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.prompt-header:hover {
+    background: #f5f6f7;
+}
+
+.prompt-header h2 {
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+.prompt-arrow {
+    font-size: 0.8rem;
+    color: #65676b;
+    transition: transform 0.2s;
+}
+
+.prompt-arrow.open {
+    transform: rotate(180deg);
+}
+
+.prompt-body {
+    padding: 0 1.5rem 1.5rem;
+}
+
+.prompt-body p {
+    margin-bottom: 0.75rem;
+}
+
+#prompt-editor {
+    width: 100%;
+    min-height: 200px;
+    padding: 0.75rem;
+    border: 1.5px solid #e4e6eb;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.5;
+    resize: vertical;
+    transition: border-color 0.15s;
+}
+
+#prompt-editor:focus {
+    outline: none;
+    border-color: #1877f2;
+}
+
+.prompt-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* Copy All button */
+.copy-all-row {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid #e4e6eb;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* Toast */
+.toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1c1e21;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    z-index: 1000;
+    transition: opacity 0.3s;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+/* Lightbox */
+.lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    cursor: pointer;
+}
+
+.lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+}
+
+/* Loading spinner overlay */
+.upload-section.loading .dropzone {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+@media (max-width: 700px) {
+    .listing-body {
+        flex-direction: column;
+    }
+    .listing-photos img {
+        width: 100%;
+        height: 200px;
+    }
+}

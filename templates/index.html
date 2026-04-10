@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FB Marketplace Clothing Lister</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>&#128085; FB Marketplace Clothing Lister</h1>
+        <p class="subtitle">Upload clothing photos &mdash; AI drafts your listing automatically</p>
+    </header>
+
+    <main>
+        <!-- Upload Section -->
+        <section class="upload-section">
+            <div id="dropzone" class="dropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">&#128247;</span>
+                    <p><strong>Drop clothing photos here</strong></p>
+                    <p class="muted">or click to browse &bull; Multiple photos = one listing</p>
+                </div>
+                <input type="file" id="file-input" multiple accept="image/*" hidden>
+            </div>
+            <button id="upload-btn" class="btn btn-primary" disabled>
+                <span class="btn-text">Upload &amp; Analyze</span>
+                <span class="btn-loading" hidden>Analyzing with AI...</span>
+            </button>
+        </section>
+
+        <!-- Prompt Editor -->
+        <section class="prompt-section">
+            <div class="prompt-header" id="prompt-toggle">
+                <h2>&#9881; AI Prompt Settings</h2>
+                <span class="prompt-arrow" id="prompt-arrow">&#9660;</span>
+            </div>
+            <div class="prompt-body" id="prompt-body" hidden>
+                <p class="muted">Edit the instructions the AI uses when analyzing your photos. This controls what kind of name, description, and hashtags it generates.</p>
+                <textarea id="prompt-editor" rows="12"></textarea>
+                <div class="prompt-actions">
+                    <button class="btn btn-save" id="save-prompt-btn">Save Prompt</button>
+                    <button class="btn btn-add-photos" id="reset-prompt-btn">Reset to Default</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Listings Table -->
+        <section class="listings-section">
+            <h2>Your Listings</h2>
+            <div id="listings-container">
+                <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
