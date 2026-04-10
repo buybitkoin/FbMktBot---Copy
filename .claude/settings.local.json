@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(curl -s http://localhost:5000/api/listings)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}

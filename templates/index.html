@@ -9,52 +9,136 @@
 <body>
     <header>
         <h1>&#128085; FB Marketplace Clothing Lister</h1>
-        <p class="subtitle">Upload clothing photos &mdash; AI drafts your listing automatically</p>
+        <nav class="tabs">
+            <button class="tab active" data-tab="listings">Listings</button>
+            <button class="tab" data-tab="inventory">Inventory</button>
+            <button class="tab" data-tab="dashboard">Dashboard</button>
+        </nav>
     </header>
 
     <main>
-        <!-- Upload Section -->
-        <section class="upload-section">
-            <div id="dropzone" class="dropzone">
-                <div class="dropzone-content">
-                    <span class="dropzone-icon">&#128247;</span>
-                    <p><strong>Drop clothing photos here</strong></p>
-                    <p class="muted">or click to browse &bull; Multiple photos = one listing</p>
+        <!-- ==================== LISTINGS TAB ==================== -->
+        <div class="tab-content active" id="tab-listings">
+            <section class="upload-section">
+                <div class="upload-options">
+                    <div class="upload-option">
+                        <label>Assign to batch:</label>
+                        <select id="upload-batch-select">
+                            <option value="">None (no batch)</option>
+                        </select>
+                    </div>
+                    <div class="upload-option">
+                        <label>Category:</label>
+                        <select id="upload-category-select">
+                            <option value="">Select category...</option>
+                        </select>
+                    </div>
                 </div>
-                <input type="file" id="file-input" multiple accept="image/*" hidden>
-            </div>
-            <button id="upload-btn" class="btn btn-primary" disabled>
-                <span class="btn-text">Upload &amp; Analyze</span>
-                <span class="btn-loading" hidden>Analyzing with AI...</span>
-            </button>
-        </section>
-
-        <!-- Prompt Editor -->
-        <section class="prompt-section">
-            <div class="prompt-header" id="prompt-toggle">
-                <h2>&#9881; AI Prompt Settings</h2>
-                <span class="prompt-arrow" id="prompt-arrow">&#9660;</span>
-            </div>
-            <div class="prompt-body" id="prompt-body" hidden>
-                <p class="muted">Edit the instructions the AI uses when analyzing your photos. This controls what kind of name, description, and hashtags it generates.</p>
-                <textarea id="prompt-editor" rows="12"></textarea>
-                <div class="prompt-actions">
-                    <button class="btn btn-save" id="save-prompt-btn">Save Prompt</button>
-                    <button class="btn btn-add-photos" id="reset-prompt-btn">Reset to Default</button>
+                <div id="dropzone" class="dropzone">
+                    <div class="dropzone-content">
+                        <span class="dropzone-icon">&#128247;</span>
+                        <p><strong>Drop clothing photos here</strong></p>
+                        <p class="muted">or click to browse &bull; Multiple photos = one listing</p>
+                    </div>
+                    <input type="file" id="file-input" multiple accept="image/*" hidden>
                 </div>
-            </div>
-        </section>
+                <button id="upload-btn" class="btn btn-primary" disabled>
+                    <span class="btn-text">Upload &amp; Analyze</span>
+                    <span class="btn-loading" hidden>Analyzing with AI...</span>
+                </button>
+            </section>
 
-        <!-- Listings Table -->
-        <section class="listings-section">
-            <h2>Your Listings</h2>
-            <div id="listings-container">
-                <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
-            </div>
-        </section>
+            <!-- Settings (collapsible) -->
+            <section class="settings-section">
+                <div class="settings-header" id="settings-toggle">
+                    <h2>&#9881; Settings</h2>
+                    <span class="settings-arrow" id="settings-arrow">&#9660;</span>
+                </div>
+                <div class="settings-body" id="settings-body" hidden>
+                    <!-- Prompt Editor -->
+                    <div class="settings-group">
+                        <h3>AI Prompt</h3>
+                        <p class="muted">Edit the instructions the AI uses when analyzing your photos.</p>
+                        <textarea id="prompt-editor" rows="10"></textarea>
+                        <div class="settings-actions">
+                            <button class="btn btn-sm btn-save" id="save-prompt-btn">Save Prompt</button>
+                            <button class="btn btn-sm btn-add-photos" id="reset-prompt-btn">Reset to Default</button>
+                        </div>
+                    </div>
+                    <!-- Category Editor -->
+                    <div class="settings-group">
+                        <h3>Categories</h3>
+                        <p class="muted">One category per line. These appear in the category dropdown when uploading.</p>
+                        <textarea id="category-editor" rows="6"></textarea>
+                        <div class="settings-actions">
+                            <button class="btn btn-sm btn-save" id="save-categories-btn">Save Categories</button>
+                            <button class="btn btn-sm btn-add-photos" id="reset-categories-btn">Reset to Default</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="listings-section">
+                <h2>Your Listings</h2>
+                <div id="listings-container">
+                    <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- ==================== INVENTORY TAB ==================== -->
+        <div class="tab-content" id="tab-inventory">
+            <section class="batch-create-section">
+                <h2>New Thrift Haul</h2>
+                <div class="batch-form">
+                    <div class="batch-field">
+                        <label>Haul Name</label>
+                        <input type="text" id="batch-name" placeholder="e.g. Goodwill Run 4/9">
+                    </div>
+                    <div class="batch-field">
+                        <label>Total Spent ($)</label>
+                        <input type="number" id="batch-total" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="batch-field">
+                        <label># of Items</label>
+                        <input type="number" id="batch-count" step="1" min="1" value="1" placeholder="1">
+                    </div>
+                    <button class="btn btn-primary" id="create-batch-btn">Create Batch</button>
+                </div>
+            </section>
+
+            <section class="batches-section">
+                <h2>Your Batches</h2>
+                <div id="batches-container">
+                    <p class="empty-state" id="batches-empty">No batches yet. Create one above to start tracking inventory!</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- ==================== DASHBOARD TAB ==================== -->
+        <div class="tab-content" id="tab-dashboard">
+            <section class="dashboard-section">
+                <h2>Profit &amp; Loss Dashboard</h2>
+
+                <!-- Summary Cards -->
+                <div class="summary-cards" id="summary-cards"></div>
+
+                <!-- Drill-down selector -->
+                <div class="drill-down-controls">
+                    <label>View by:</label>
+                    <select id="drill-down-select">
+                        <option value="batch">Batch</option>
+                        <option value="category">Category</option>
+                        <option value="item">Item</option>
+                    </select>
+                </div>
+
+                <!-- Drill-down table -->
+                <div class="drill-down-table" id="drill-down-table"></div>
+            </section>
+        </div>
     </main>
 
-    <!-- Toast notification -->
     <div id="toast" class="toast" hidden></div>
 
     <script src="/static/app.js"></script>
