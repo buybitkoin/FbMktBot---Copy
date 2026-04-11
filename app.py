@@ -272,6 +272,8 @@ def save_prompt_api():
     prompt = data.get("prompt", "").strip()
     if not prompt:
         return jsonify({"error": "Prompt cannot be empty"}), 400
+    if len(prompt) > 1000:
+        return jsonify({"error": "Prompt cannot exceed 1000 characters"}), 400
     conn = get_db()
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('prompt', ?) "
@@ -290,6 +292,32 @@ def reset_prompt_api():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "prompt": DEFAULT_PROMPT})
+
+
+# --- Theme Routes ---
+
+@app.route("/api/theme", methods=["GET"])
+def get_theme_api():
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'theme'").fetchone()
+    conn.close()
+    if row:
+        return jsonify(json.loads(row["value"]))
+    return jsonify({"theme": "dark", "font": "Inter"})
+
+
+@app.route("/api/theme", methods=["PUT"])
+def save_theme_api():
+    data = request.json
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('theme', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(data),),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 # --- Category Routes ---

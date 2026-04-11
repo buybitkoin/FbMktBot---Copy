@@ -3,92 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FB Marketplace Clothing Lister</title>
+    <title>FlipStack AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header>
-        <h1>&#128085; FB Marketplace Clothing Lister</h1>
-        <nav class="tabs">
-            <button class="tab active" data-tab="listings">Listings</button>
-            <button class="tab" data-tab="inventory">Inventory</button>
-            <button class="tab" data-tab="dashboard">Dashboard</button>
-        </nav>
+        <div class="brand">
+            <svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#logo-grad)" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+                <path d="M14 32 L14 16 L28 16 L28 20 L19 20 L19 22.5 L26 22.5 L26 26.5 L19 26.5 L19 32 Z" fill="white" opacity="0.95"/>
+                <path d="M24 20 L34 20 L34 24 L29 24 L29 32 L24 32 Z" fill="white" opacity="0.65"/>
+                <rect x="14" y="34" width="20" height="2.5" rx="1.25" fill="url(#bar-grad)"/>
+                <defs>
+                    <linearGradient id="logo-grad" x1="0" y1="0" x2="48" y2="48">
+                        <stop offset="0%" stop-color="#6c5ce7"/>
+                        <stop offset="100%" stop-color="#a855f7"/>
+                    </linearGradient>
+                    <linearGradient id="bar-grad" x1="14" y1="0" x2="34" y2="0">
+                        <stop offset="0%" stop-color="#00cec9"/>
+                        <stop offset="100%" stop-color="#55efc4"/>
+                    </linearGradient>
+                </defs>
+            </svg>
+            <div class="brand-text">
+                <h1>FlipStack <span class="ai-badge">AI</span></h1>
+                <p class="tagline">Thrift smarter. List faster. Profit more.</p>
+            </div>
+        </div>
+        <div class="header-row">
+            <nav class="tabs">
+                <button class="tab active" data-tab="inventory">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1h10l1.5 3H1.5L3 1zM1 5h14v9.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 14.5V5zm5 3h4v1.5H6z"/></svg>
+                    Inventory
+                </button>
+                <button class="tab" data-tab="listings">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v1.5H2zm0 4h12v1.5H2zm0 4h8v1.5H2z"/></svg>
+                    Listings
+                </button>
+                <button class="tab" data-tab="dashboard">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 14V9h3v5zm4.5 0V5h3v9zm4.5 0V2h3v12z"/></svg>
+                    Dashboard
+                </button>
+            </nav>
+            <button class="settings-cog" id="settings-cog" title="Settings">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+            </button>
+        </div>
     </header>
 
     <main>
-        <!-- ==================== LISTINGS TAB ==================== -->
-        <div class="tab-content active" id="tab-listings">
-            <section class="upload-section">
-                <div class="upload-options">
-                    <div class="upload-option">
-                        <label>Assign to batch:</label>
-                        <select id="upload-batch-select">
-                            <option value="">None (no batch)</option>
-                        </select>
-                    </div>
-                    <div class="upload-option">
-                        <label>Category:</label>
-                        <select id="upload-category-select">
-                            <option value="">Select category...</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="dropzone" class="dropzone">
-                    <div class="dropzone-content">
-                        <span class="dropzone-icon">&#128247;</span>
-                        <p><strong>Drop clothing photos here</strong></p>
-                        <p class="muted">or click to browse &bull; Multiple photos = one listing</p>
-                    </div>
-                    <input type="file" id="file-input" multiple accept="image/*" hidden>
-                </div>
-                <button id="upload-btn" class="btn btn-primary" disabled>
-                    <span class="btn-text">Upload &amp; Analyze</span>
-                    <span class="btn-loading" hidden>Analyzing with AI...</span>
-                </button>
-            </section>
-
-            <!-- Settings (collapsible) -->
-            <section class="settings-section">
-                <div class="settings-header" id="settings-toggle">
-                    <h2>&#9881; Settings</h2>
-                    <span class="settings-arrow" id="settings-arrow">&#9660;</span>
-                </div>
-                <div class="settings-body" id="settings-body" hidden>
-                    <!-- Prompt Editor -->
-                    <div class="settings-group">
-                        <h3>AI Prompt</h3>
-                        <p class="muted">Edit the instructions the AI uses when analyzing your photos.</p>
-                        <textarea id="prompt-editor" rows="10"></textarea>
-                        <div class="settings-actions">
-                            <button class="btn btn-sm btn-save" id="save-prompt-btn">Save Prompt</button>
-                            <button class="btn btn-sm btn-add-photos" id="reset-prompt-btn">Reset to Default</button>
-                        </div>
-                    </div>
-                    <!-- Category Editor -->
-                    <div class="settings-group">
-                        <h3>Categories</h3>
-                        <p class="muted">One category per line. These appear in the category dropdown when uploading.</p>
-                        <textarea id="category-editor" rows="6"></textarea>
-                        <div class="settings-actions">
-                            <button class="btn btn-sm btn-save" id="save-categories-btn">Save Categories</button>
-                            <button class="btn btn-sm btn-add-photos" id="reset-categories-btn">Reset to Default</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="listings-section">
-                <h2>Your Listings</h2>
-                <div id="listings-container">
-                    <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
-                </div>
-            </section>
-        </div>
-
         <!-- ==================== INVENTORY TAB ==================== -->
-        <div class="tab-content" id="tab-inventory">
-            <section class="batch-create-section">
+        <div class="tab-content active" id="tab-inventory">
+            <section class="card batch-create-section">
                 <h2>New Thrift Haul</h2>
                 <div class="batch-form">
                     <div class="batch-field">
@@ -103,14 +75,58 @@
                         <label># of Items</label>
                         <input type="number" id="batch-count" step="1" min="1" value="1" placeholder="1">
                     </div>
-                    <button class="btn btn-primary" id="create-batch-btn">Create Batch</button>
+                    <button class="btn btn-accent" id="create-batch-btn">Create Batch</button>
+                </div>
+                <!-- Success callout after batch creation -->
+                <div class="batch-created-callout" id="batch-created-callout" hidden>
+                    <p>Batch created! Ready to upload items.</p>
+                    <button class="btn btn-accent" id="go-to-listings-btn">Go to Listings &rarr;</button>
                 </div>
             </section>
 
             <section class="batches-section">
                 <h2>Your Batches</h2>
                 <div id="batches-container">
-                    <p class="empty-state" id="batches-empty">No batches yet. Create one above to start tracking inventory!</p>
+                    <p class="empty-state" id="batches-empty">No batches yet. Create one above!</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- ==================== LISTINGS TAB ==================== -->
+        <div class="tab-content" id="tab-listings">
+            <section class="card upload-section">
+                <div class="upload-options">
+                    <div class="upload-option">
+                        <label>Batch</label>
+                        <select id="upload-batch-select"><option value="">None</option></select>
+                    </div>
+                    <div class="upload-option">
+                        <label>Category</label>
+                        <select id="upload-category-select"><option value="">Select...</option></select>
+                    </div>
+                </div>
+                <div id="dropzone" class="dropzone">
+                    <div class="dropzone-content">
+                        <div class="dropzone-icon">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="4" y="8" width="40" height="32" rx="6" stroke="currentColor" stroke-width="2.5" fill="none"/><circle cx="16" cy="20" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 32l10-10 8 8 6-6 16 16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                        </div>
+                        <p><strong>Drop clothing photos here</strong></p>
+                        <p class="muted">or click to browse &bull; Multiple photos = one listing</p>
+                    </div>
+                    <input type="file" id="file-input" multiple accept="image/*" hidden>
+                </div>
+                <button id="upload-btn" class="btn btn-accent" disabled>
+                    <span class="btn-text">Upload &amp; Analyze</span>
+                    <span class="btn-loading" hidden>
+                        <span class="spinner"></span> Analyzing with AI...
+                    </span>
+                </button>
+            </section>
+
+            <section class="listings-section">
+                <h2>Your Listings</h2>
+                <div id="listings-container">
+                    <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
                 </div>
             </section>
         </div>
@@ -119,11 +135,7 @@
         <div class="tab-content" id="tab-dashboard">
             <section class="dashboard-section">
                 <h2>Profit &amp; Loss Dashboard</h2>
-
-                <!-- Summary Cards -->
                 <div class="summary-cards" id="summary-cards"></div>
-
-                <!-- Drill-down selector -->
                 <div class="drill-down-controls">
                     <label>View by:</label>
                     <select id="drill-down-select">
@@ -132,15 +144,63 @@
                         <option value="item">Item</option>
                     </select>
                 </div>
-
-                <!-- Drill-down table -->
                 <div class="drill-down-table" id="drill-down-table"></div>
             </section>
+        </div>
+
+        <!-- ==================== SETTINGS PAGE (overlay) ==================== -->
+        <div class="settings-overlay" id="settings-overlay" hidden>
+            <div class="settings-panel">
+                <div class="settings-panel-header">
+                    <h2>Settings</h2>
+                    <button class="settings-close" id="settings-close">&times;</button>
+                </div>
+                <div class="settings-panel-body">
+                    <!-- Display Mode -->
+                    <div class="settings-group">
+                        <h3>Display Mode</h3>
+                        <div class="theme-buttons">
+                            <button class="theme-btn active" data-theme="dark">
+                                <span class="theme-preview dark-preview"></span>
+                                Dark
+                            </button>
+                            <button class="theme-btn" data-theme="light">
+                                <span class="theme-preview light-preview"></span>
+                                Light
+                            </button>
+                            <button class="theme-btn" data-theme="evening">
+                                <span class="theme-preview evening-preview"></span>
+                                Evening
+                            </button>
+                        </div>
+                    </div>
+                    <!-- AI Prompt -->
+                    <div class="settings-group">
+                        <h3>AI Prompt</h3>
+                        <p class="muted">Customize how the AI drafts your listings.</p>
+                        <textarea id="prompt-editor" rows="10" maxlength="1000"></textarea>
+                        <div class="char-counter"><span id="prompt-char-count">0</span> / 1000</div>
+                        <div class="settings-actions">
+                            <button class="btn btn-sm btn-accent" id="save-prompt-btn">Save Prompt</button>
+                            <button class="btn btn-sm btn-ghost" id="reset-prompt-btn">Reset</button>
+                        </div>
+                    </div>
+                    <!-- Categories -->
+                    <div class="settings-group">
+                        <h3>Categories</h3>
+                        <p class="muted">One per line.</p>
+                        <textarea id="category-editor" rows="6"></textarea>
+                        <div class="settings-actions">
+                            <button class="btn btn-sm btn-accent" id="save-categories-btn">Save</button>
+                            <button class="btn btn-sm btn-ghost" id="reset-categories-btn">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
     <div id="toast" class="toast" hidden></div>
-
     <script src="/static/app.js"></script>
 </body>
 </html>
