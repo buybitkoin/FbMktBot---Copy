@@ -30,9 +30,11 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
 @app.after_request
 def add_cors_headers(response):
-    """Allow the Chrome extension to access the API."""
+    """Allow the Chrome extension and its content scripts to access the API."""
     origin = request.headers.get("Origin", "")
-    if origin.startswith("chrome-extension://") or "localhost" in origin:
+    if (origin.startswith("chrome-extension://")
+            or "localhost" in origin
+            or "facebook.com" in origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
