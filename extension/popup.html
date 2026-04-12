@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlipStack AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="header">
+        <div class="brand">
+            <svg class="logo" viewBox="0 0 40 40" fill="none">
+                <rect width="40" height="40" rx="10" fill="url(#g1)"/>
+                <path d="M12 26V14l8 6-8 6z" fill="#fff" opacity="0.9"/>
+                <path d="M20 26V14l8 6-8 6z" fill="#fff" opacity="0.6"/>
+                <defs><linearGradient id="g1" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#6c5ce7"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
+            </svg>
+            <div>
+                <span class="brand-name">FlipStack <span class="ai">AI</span></span>
+                <span class="brand-sub">Marketplace Filler</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="status-bar" class="status-bar" hidden>
+        <span id="status-icon">&#9679;</span>
+        <span id="status-text"></span>
+    </div>
+
+    <div id="not-on-fb" class="notice" hidden>
+        <p>Navigate to <strong>Facebook Marketplace &rarr; Create New Listing</strong>, then open this extension to fill fields.</p>
+        <a href="https://www.facebook.com/marketplace/create/item" target="_blank" class="btn btn-primary">Open Marketplace</a>
+    </div>
+
+    <div id="connection-error" class="notice error" hidden>
+        <p>Can't reach FlipStack AI. Make sure the app is running at <strong>localhost:5000</strong>.</p>
+        <button class="btn btn-secondary" id="retry-btn">Retry</button>
+    </div>
+
+    <div id="listings-section" hidden>
+        <div class="search-bar">
+            <input type="text" id="search" placeholder="Search listings...">
+        </div>
+        <div class="filter-row">
+            <select id="filter-batch">
+                <option value="">All batches</option>
+            </select>
+            <select id="filter-posted">
+                <option value="">All</option>
+                <option value="unposted">Not posted</option>
+                <option value="posted">Posted</option>
+            </select>
+        </div>
+        <div id="listings-list" class="listings-list"></div>
+        <div id="empty-msg" class="notice" hidden>
+            <p>No listings match your filters.</p>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

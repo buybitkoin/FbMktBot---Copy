@@ -6,7 +6,7 @@ import base64
 import sqlite3
 from pathlib import Path
 
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, after_this_request
 from dotenv import load_dotenv
 import anthropic
 from io import BytesIO
@@ -23,6 +23,17 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 DB_PATH = Path(__file__).parent / "listings.db"
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+
+
+@app.after_request
+def add_cors_headers(response):
+    """Allow the Chrome extension to access the API."""
+    origin = request.headers.get("Origin", "")
+    if origin.startswith("chrome-extension://") or "localhost" in origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
 
 DEFAULT_CATEGORIES = ["Tops", "Bottoms", "Dresses", "Shoes"]
 
@@ -72,6 +83,7 @@ def init_db():
             list_price REAL NOT NULL DEFAULT 0,
             sale_price REAL NOT NULL DEFAULT 0,
             shipping_cost REAL NOT NULL DEFAULT 0,
+            posted INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL
         );
@@ -108,6 +120,7 @@ def migrate_db():
         "list_price": "ALTER TABLE listings ADD COLUMN list_price REAL NOT NULL DEFAULT 0",
         "sale_price": "ALTER TABLE listings ADD COLUMN sale_price REAL NOT NULL DEFAULT 0",
         "shipping_cost": "ALTER TABLE listings ADD COLUMN shipping_cost REAL NOT NULL DEFAULT 0",
+        "posted": "ALTER TABLE listings ADD COLUMN posted INTEGER NOT NULL DEFAULT 0",
     }
     for col, sql in migrations.items():
         if col not in columns:
@@ -436,6 +449,7 @@ def listing_to_dict(listing, photos):
         "list_price": listing["list_price"],
         "sale_price": listing["sale_price"],
         "shipping_cost": listing["shipping_cost"],
+        "posted": bool(listing["posted"]),
         "created_at": listing["created_at"],
         "photos": [
             {
@@ -574,12 +588,13 @@ def update_listing(listing_id):
     list_price = float(data.get("list_price", listing["list_price"]))
     sale_price = float(data.get("sale_price", listing["sale_price"]))
     shipping_cost = float(data.get("shipping_cost", listing["shipping_cost"]))
+    posted = int(data.get("posted", listing["posted"]))
 
     conn.execute(
         """UPDATE listings SET name=?, description=?, hashtags=?, category=?,
-           cost=?, cost_locked=?, list_price=?, sale_price=?, shipping_cost=?
+           cost=?, cost_locked=?, list_price=?, sale_price=?, shipping_cost=?, posted=?
            WHERE id=?""",
-        (name, desc, tags, category, cost, cost_locked, list_price, sale_price, shipping_cost, listing_id),
+        (name, desc, tags, category, cost, cost_locked, list_price, sale_price, shipping_cost, posted, listing_id),
     )
 
     if listing["batch_id"] and (cost != listing["cost"] or cost_locked != listing["cost_locked"]):
