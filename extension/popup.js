@@ -151,7 +151,7 @@ async function fillListing(listingId) {
                 name: listing.name,
                 description: listing.description,
                 hashtags: listing.hashtags,
-                price: listing.list_price > 0 ? listing.list_price.toFixed(2) : "",
+                price: listing.list_price > 0 ? Math.round(listing.list_price).toString() : "",
                 category: listing.category || "",
             },
         });

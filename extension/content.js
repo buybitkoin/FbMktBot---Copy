@@ -261,6 +261,123 @@
         return findByPosition(2);
     }
 
+    // === DROPDOWN FILL (Category, Condition, etc.) ===
+    // Facebook uses custom dropdowns — not native <select> elements.
+    // Strategy: find the dropdown trigger by label, click it, wait for the
+    // popup menu to appear, then click the matching option.
+
+    async function fillDropdown(labelKeywords, optionText) {
+        const optionLower = optionText.toLowerCase();
+
+        // Strategy 1: Find a <label> or <span> containing the keyword,
+        // then find a clickable dropdown trigger nearby
+        let trigger = null;
+        for (const kw of labelKeywords) {
+            const lower = kw.toLowerCase();
+
+            // Look for aria-label on a listbox/combobox/button
+            const ariaEls = document.querySelectorAll(
+                `[aria-label*="${kw}" i][role="combobox"], [aria-label*="${kw}" i][role="button"], [aria-label*="${kw}" i][role="listbox"]`
+            );
+            if (ariaEls.length > 0) { trigger = ariaEls[0]; break; }
+
+            // Look for a label/span near a clickable element
+            const allSpans = document.querySelectorAll("label, span");
+            for (const span of allSpans) {
+                const txt = span.textContent.trim().toLowerCase();
+                if (!txt.includes(lower) || txt.length > 40) continue;
+                // Walk up to find a clickable dropdown container
+                let container = span.parentElement;
+                for (let i = 0; i < 6 && container; i++) {
+                    // Facebook dropdown triggers are often divs with role or tabindex
+                    const candidate = container.querySelector(
+                        '[role="combobox"], [role="button"], [role="listbox"], [tabindex="0"]'
+                    );
+                    if (candidate && candidate.getBoundingClientRect().width > 30) {
+                        trigger = candidate;
+                        break;
+                    }
+                    container = container.parentElement;
+                }
+                if (trigger) break;
+            }
+            if (trigger) break;
+        }
+
+        if (!trigger) {
+            log(`  Dropdown trigger not found for: ${labelKeywords.join(", ")}`);
+            return false;
+        }
+
+        log(`  Found dropdown trigger: <${trigger.tagName}> role="${trigger.getAttribute("role")}" aria="${trigger.getAttribute("aria-label")}"`);
+
+        // Click to open the dropdown
+        trigger.scrollIntoView({ block: "center" });
+        await sleep(rand(150, 300));
+        trigger.click();
+        await sleep(rand(500, 800));
+
+        // Look for the dropdown menu / listbox that appeared
+        // Facebook renders these as role="listbox" or role="menu" or just a list of role="option" items
+        const picked = await pickOption(optionLower);
+        if (picked) return true;
+
+        // Sometimes need a second click or the menu takes longer
+        await sleep(500);
+        const picked2 = await pickOption(optionLower);
+        if (picked2) return true;
+
+        // Close the dropdown if we couldn't pick
+        document.body.click();
+        await sleep(200);
+        return false;
+    }
+
+    async function pickOption(optionLower) {
+        // Find all option-like elements currently visible
+        const candidates = document.querySelectorAll(
+            '[role="option"], [role="menuitem"], [role="menuitemradio"], [role="listbox"] [role="option"]'
+        );
+
+        for (const opt of candidates) {
+            const txt = opt.textContent.trim().toLowerCase();
+            if (txt.includes(optionLower) || optionLower.includes(txt)) {
+                log(`  Clicking option: "${opt.textContent.trim()}"`);
+                opt.scrollIntoView({ block: "center" });
+                await sleep(rand(100, 200));
+                opt.click();
+                await sleep(rand(300, 500));
+                return true;
+            }
+        }
+
+        // Fallback: look for any visible clickable element matching the text
+        const allEls = document.querySelectorAll("div, span, li");
+        for (const el of allEls) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 30 || rect.height < 15) continue;
+            // Only match leaf-ish elements (not huge containers)
+            if (el.children.length > 5) continue;
+            const txt = el.textContent.trim().toLowerCase();
+            if (txt === optionLower || txt.includes(optionLower)) {
+                // Make sure it's in a popup/overlay (high z-index or fixed/absolute position)
+                const style = window.getComputedStyle(el);
+                const parentStyle = window.getComputedStyle(el.parentElement);
+                const isPopup = style.position === "fixed" || style.position === "absolute"
+                    || parentStyle.position === "fixed" || parentStyle.position === "absolute"
+                    || parseInt(style.zIndex) > 1;
+                if (isPopup || rect.top > 0) {
+                    log(`  Clicking fallback match: "${el.textContent.trim()}"`);
+                    el.click();
+                    await sleep(rand(300, 500));
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // === MAIN FILL LOGIC ===
 
     async function fillMarketplaceForm(listing) {
@@ -292,12 +409,53 @@
         const priceField = findPriceField();
         if (priceField && listing.price) {
             log(`Price field found: <${priceField.tagName}> aria="${priceField.getAttribute("aria-label")}"`);
-            const priceClean = listing.price.replace(/[^0-9.]/g, "");
-            const ok = await smartFill(priceField, priceClean);
+            // Facebook price field takes whole numbers only — strip decimals and non-digits
+            const priceWhole = listing.price.replace(/[^0-9]/g, "").replace(/^0+/, "") || "0";
+            const ok = await smartFill(priceField, priceWhole);
             (ok ? results.filled : results.skipped).push("price");
         } else {
             log(`Price field NOT found (price value: "${listing.price}")`);
             results.skipped.push("price");
+        }
+
+        await sleep(rand(400, 700));
+
+        // --- CATEGORY (click-based dropdown) ---
+        try {
+            const catFilled = await fillDropdown(
+                ["category", "categor"],
+                "Clothing & Shoes"
+            );
+            if (catFilled) {
+                results.filled.push("category");
+                log("Category filled: Clothing & Shoes");
+            } else {
+                results.skipped.push("category");
+                log("Category dropdown not found or could not select");
+            }
+        } catch (err) {
+            log(`Category error: ${err.message}`);
+            results.skipped.push("category");
+        }
+
+        await sleep(rand(400, 700));
+
+        // --- CONDITION (click-based dropdown) ---
+        try {
+            const condFilled = await fillDropdown(
+                ["condition"],
+                "Used - Good"
+            );
+            if (condFilled) {
+                results.filled.push("condition");
+                log("Condition filled: Used - Good");
+            } else {
+                results.skipped.push("condition");
+                log("Condition dropdown not found or could not select");
+            }
+        } catch (err) {
+            log(`Condition error: ${err.message}`);
+            results.skipped.push("condition");
         }
 
         await sleep(rand(400, 700));
