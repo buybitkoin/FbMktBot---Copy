@@ -356,16 +356,6 @@ select:focus { outline: none; border-color: var(--accent); }
 /* === LISTINGS === */
 .listings-section h2, .batches-section h2, .dashboard-section h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; }
 
-.listings-header-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-.listings-header-row h2 { margin-bottom: 0; }
-
 .btn-facebook {
     display: inline-flex;
     align-items: center;
@@ -426,7 +416,7 @@ select:focus { outline: none; border-color: var(--accent); }
     background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
     color: var(--text); font-size: 0.85rem; font-family: var(--font);
 }
-.copy-all-row { padding: 0.65rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.4rem; }
+.copy-all-row { padding: 0.65rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
 /* === INVENTORY === */
 .batch-create-section { padding: 1.5rem 1.75rem; }
