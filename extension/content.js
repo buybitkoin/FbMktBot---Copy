@@ -559,6 +559,7 @@
     }
 
     window.__flipstack_listener = (message, sender, sendResponse) => {
+        // Handle fill from popup
         if (message.action === "fill" && message.listing) {
             fillMarketplaceForm(message.listing).then(results => {
                 if (results.filled.length > 0) {
@@ -581,47 +582,48 @@
             });
             return true; // async response
         }
+
+        // Handle auto-fill from background service worker
+        if (message.action === "auto-fill" && message.listingId) {
+            autoFillFromAPI(message.listingId).then(results => {
+                sendResponse({ success: true, filled: results?.filled || [] });
+            }).catch(err => {
+                sendResponse({ success: false, error: err.message });
+            });
+            return true;
+        }
     };
 
     chrome.runtime.onMessage.addListener(window.__flipstack_listener);
     log("Content script loaded — ready to fill fields");
 
-    // === AUTO-FILL FROM URL HASH ===
-    // When the page loads with #flipstack=LISTING_ID, automatically fetch
-    // the listing from the FlipStack API and fill the form.
-    // This is triggered by the "Post on Marketplace" button in the main app.
+    // === AUTO-FILL FROM BACKGROUND WORKER ===
+    // Called when background.js detects #flipstack=LISTING_ID in the URL
+    // and sends us the listing ID via message.
 
-    async function checkAutoFill() {
-        const hash = window.location.hash;
-        const match = hash.match(/#flipstack=([a-f0-9]+)/);
-        if (!match) return;
-
-        const listingId = match[1];
+    async function autoFillFromAPI(listingId) {
         log(`Auto-fill triggered for listing: ${listingId}`);
 
-        // Clear the hash so it doesn't re-trigger on refresh
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-
-        // Wait for the Facebook form to fully load
+        // Wait for the Facebook form to be ready
         log("Waiting for Facebook form to load...");
         let formReady = false;
-        for (let attempt = 0; attempt < 20; attempt++) {
-            await sleep(1000);
+        for (let attempt = 0; attempt < 15; attempt++) {
             const inputs = getVisibleInputs();
             if (inputs.length >= 2) {
                 formReady = true;
                 break;
             }
             log(`  Attempt ${attempt + 1}: ${inputs.length} inputs found, waiting...`);
+            await sleep(1500);
         }
 
         if (!formReady) {
-            log("Form did not load in time. Try clicking the Fill button in the extension popup.");
-            return;
+            log("Form did not load in time.");
+            return { filled: [], skipped: ["form not ready"] };
         }
 
         // Extra wait for React to finish rendering
-        await sleep(1500);
+        await sleep(2000);
 
         // Fetch the listing from the FlipStack API
         const API = "http://localhost:5000";
@@ -632,11 +634,11 @@
             listing = listings.find(l => l.id === listingId);
             if (!listing) {
                 log(`Listing ${listingId} not found in API`);
-                return;
+                return { filled: [], skipped: ["listing not found"] };
             }
         } catch (err) {
             log(`Failed to fetch listing from FlipStack: ${err.message}`);
-            return;
+            return { filled: [], skipped: ["api error"] };
         }
 
         log(`Filling: "${listing.name}" — $${listing.list_price}`);
@@ -661,7 +663,7 @@
             });
             log("Listing marked as posted");
         } catch { /* non-critical */ }
-    }
 
-    checkAutoFill();
+        return results;
+    }
 })();
