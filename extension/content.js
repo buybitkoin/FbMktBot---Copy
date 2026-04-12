@@ -582,32 +582,46 @@
             });
             return true; // async response
         }
-
-        // Handle auto-fill from background service worker
-        if (message.action === "auto-fill" && message.listingId) {
-            autoFillFromAPI(message.listingId).then(results => {
-                sendResponse({ success: true, filled: results?.filled || [] });
-            }).catch(err => {
-                sendResponse({ success: false, error: err.message });
-            });
-            return true;
-        }
     };
 
     chrome.runtime.onMessage.addListener(window.__flipstack_listener);
     log("Content script loaded — ready to fill fields");
 
-    // === AUTO-FILL FROM BACKGROUND WORKER ===
-    // Called when background.js detects #flipstack=LISTING_ID in the URL
-    // and sends us the listing ID via message.
+    // === AUTO-FILL VIA API POLLING ===
+    // When FlipStack's "Post on Marketplace" button is clicked, it stores the
+    // listing ID at /api/pending-post. This content script runs on every
+    // facebook.com/marketplace/create/* page and checks that endpoint.
+    // No hashes, no background workers, no Chrome messaging — just an API call.
 
-    async function autoFillFromAPI(listingId) {
-        log(`Auto-fill triggered for listing: ${listingId}`);
+    const API = "http://localhost:5000";
+
+    async function checkPendingPost() {
+        log("Checking for pending post from FlipStack API...");
+
+        let pendingData;
+        try {
+            const res = await fetch(`${API}/api/pending-post`);
+            pendingData = await res.json();
+        } catch (err) {
+            log(`Could not reach FlipStack API: ${err.message}`);
+            return;
+        }
+
+        const listingId = pendingData?.listing_id;
+        if (!listingId) {
+            log("No pending post found.");
+            return;
+        }
+
+        log(`Pending post found: ${listingId}`);
+
+        // Clear it immediately so it doesn't re-trigger
+        try { await fetch(`${API}/api/pending-post`, { method: "DELETE" }); } catch {}
 
         // Wait for the Facebook form to be ready
         log("Waiting for Facebook form to load...");
         let formReady = false;
-        for (let attempt = 0; attempt < 15; attempt++) {
+        for (let attempt = 0; attempt < 20; attempt++) {
             const inputs = getVisibleInputs();
             if (inputs.length >= 2) {
                 formReady = true;
@@ -619,29 +633,28 @@
 
         if (!formReady) {
             log("Form did not load in time.");
-            return { filled: [], skipped: ["form not ready"] };
+            return;
         }
 
-        // Extra wait for React to finish rendering
+        // Extra wait for React to finish rendering all fields
         await sleep(2000);
 
-        // Fetch the listing from the FlipStack API
-        const API = "http://localhost:5000";
+        // Fetch the listing
         let listing;
         try {
             const res = await fetch(`${API}/api/listings`);
             const listings = await res.json();
             listing = listings.find(l => l.id === listingId);
             if (!listing) {
-                log(`Listing ${listingId} not found in API`);
-                return { filled: [], skipped: ["listing not found"] };
+                log(`Listing ${listingId} not found`);
+                return;
             }
         } catch (err) {
-            log(`Failed to fetch listing from FlipStack: ${err.message}`);
-            return { filled: [], skipped: ["api error"] };
+            log(`Failed to fetch listing: ${err.message}`);
+            return;
         }
 
-        log(`Filling: "${listing.name}" — $${listing.list_price}`);
+        log(`Auto-filling: "${listing.name}" — $${listing.list_price}`);
 
         // Fill the form
         const results = await fillMarketplaceForm({
@@ -662,8 +675,9 @@
                 body: JSON.stringify({ posted: 1 }),
             });
             log("Listing marked as posted");
-        } catch { /* non-critical */ }
-
-        return results;
+        } catch {}
     }
+
+    // Run the check — the content script auto-injects on marketplace/create pages
+    checkPendingPost();
 })();

@@ -310,6 +310,42 @@ def reset_prompt_api():
     return jsonify({"ok": True, "prompt": DEFAULT_PROMPT})
 
 
+# --- Pending Post (extension communication) ---
+
+@app.route("/api/pending-post", methods=["GET"])
+def get_pending_post():
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'pending_post'").fetchone()
+    conn.close()
+    if row:
+        return jsonify(json.loads(row["value"]))
+    return jsonify({"listing_id": None})
+
+
+@app.route("/api/pending-post", methods=["POST"])
+def set_pending_post():
+    data = request.json
+    listing_id = data.get("listing_id")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('pending_post', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps({"listing_id": listing_id}),),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pending-post", methods=["DELETE"])
+def clear_pending_post():
+    conn = get_db()
+    conn.execute("DELETE FROM settings WHERE key = 'pending_post'")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 # --- Theme Routes ---
 
 @app.route("/api/theme", methods=["GET"])
