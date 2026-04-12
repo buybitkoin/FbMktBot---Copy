@@ -72,7 +72,11 @@ body {
     background: rgba(0,206,201,0.15); color: #00cec9;
     padding: 0.3rem 0.75rem; font-size: 0.7rem; border-radius: 6px;
     border: 1px solid rgba(0,206,201,0.2); font-weight: 700; font-family: 'Nunito', sans-serif;
-    cursor: default;
+    cursor: pointer; transition: all 0.15s;
+}
+.btn-posted:hover {
+    background: rgba(255,107,107,0.15); color: #ff6b6b;
+    border-color: rgba(255,107,107,0.3);
 }
 
 /* Search & Filters */

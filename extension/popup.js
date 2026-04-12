@@ -86,7 +86,7 @@ function renderListings() {
         if (l.category) metaParts.push(escapeHtml(l.category));
 
         const actionBtn = l.posted
-            ? `<span class="btn-posted">&#10003; Posted</span>`
+            ? `<button class="btn-posted" data-id="${l.id}" data-action="unpost">&#10003; Posted</button>`
             : `<button class="btn-fill" data-id="${l.id}">Fill &rarr;</button>`;
 
         return `
@@ -105,6 +105,14 @@ function renderListings() {
         btn.addEventListener("click", (e) => {
             e.stopPropagation();
             fillListing(btn.dataset.id);
+        });
+    });
+
+    // Attach unpost button events
+    listingsList.querySelectorAll('[data-action="unpost"]').forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            unpostListing(btn.dataset.id);
         });
     });
 }
@@ -149,7 +157,11 @@ async function fillListing(listingId) {
         });
 
         if (response?.success) {
-            showStatus("Fields filled! Review and post.", "success");
+            const filledStr = response.filled.join(", ");
+            const skippedStr = response.skipped.length > 0
+                ? ` (skipped: ${response.skipped.join(", ")})`
+                : "";
+            showStatus(`Filled: ${filledStr}${skippedStr}. Review and post!`, "success");
 
             // Mark as posted in FlipStack
             try {
@@ -162,12 +174,34 @@ async function fillListing(listingId) {
                 renderListings();
             } catch { /* non-critical */ }
         } else {
-            showStatus(response?.error || "Fill failed — try refreshing the page", "error");
+            const hint = response?.skipped?.length
+                ? ` Skipped: ${response.skipped.join(", ")}. Check console (F12) for [FlipStack] debug logs.`
+                : "";
+            showStatus((response?.error || "Fill failed — try refreshing the page") + hint, "error");
             if (btn) { btn.disabled = false; btn.textContent = "Fill →"; }
         }
     } catch (err) {
         showStatus("Could not reach the page. Refresh Facebook and try again.", "error");
         if (btn) { btn.disabled = false; btn.textContent = "Fill →"; }
+    }
+}
+
+// === UNPOST LISTING ===
+async function unpostListing(listingId) {
+    const listing = allListings.find(l => l.id === listingId);
+    if (!listing) return;
+
+    try {
+        await fetch(`${API}/api/listings/${listingId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ posted: 0 }),
+        });
+        listing.posted = false;
+        renderListings();
+        showStatus("Marked as not posted", "success");
+    } catch {
+        showStatus("Failed to update", "error");
     }
 }
 
