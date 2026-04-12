@@ -268,75 +268,127 @@
     }
 
     // === DROPDOWN FILL (Category, Condition, etc.) ===
-    // Facebook uses custom dropdowns — not native <select> elements.
-    // Strategy: find the dropdown trigger by label, click it, wait for the
-    // popup menu to appear, then click the matching option.
+    // Facebook uses custom dropdowns. Strategy:
+    // 1. Find the dropdown trigger near the label and click to open it
+    // 2. Look for a search/filter input inside the opened popup and type the value
+    // 3. Wait for filtered results, then click the first matching option
+    // 4. Fallback: if no search input, just scan for the option text and click it
 
     async function fillDropdown(labelKeywords, optionText) {
         const optionLower = optionText.toLowerCase();
 
-        // Strategy 1: Find a <label> or <span> containing the keyword,
-        // then find a clickable dropdown trigger nearby
-        let trigger = null;
+        // Find the dropdown trigger
+        let trigger = findDropdownTrigger(labelKeywords);
+        if (!trigger) {
+            log(`  Dropdown trigger not found for: ${labelKeywords.join(", ")}`);
+            return false;
+        }
+
+        log(`  Found dropdown trigger: <${trigger.tagName}> role="${trigger.getAttribute("role")}" text="${trigger.textContent.trim().substring(0, 30)}"`);
+
+        // Click to open
+        trigger.scrollIntoView({ block: "center" });
+        await sleep(rand(200, 400));
+        trigger.click();
+        await sleep(rand(600, 1000));
+
+        // Look for a search/type-ahead input inside any popup/dialog that appeared
+        const searchInput = findPopupSearchInput();
+        if (searchInput) {
+            log(`  Found search input in popup — typing "${optionText}"`);
+            await smartFill(searchInput, optionText);
+            await sleep(rand(600, 1000)); // wait for search results to filter
+
+            // Click the first matching option
+            const picked = await pickOption(optionLower);
+            if (picked) return true;
+
+            // Wait a bit more and try again
+            await sleep(500);
+            const picked2 = await pickOption(optionLower);
+            if (picked2) return true;
+        } else {
+            log(`  No search input found, scanning options directly`);
+            // Try to pick from whatever options are visible
+            const picked = await pickOption(optionLower);
+            if (picked) return true;
+            await sleep(500);
+            const picked2 = await pickOption(optionLower);
+            if (picked2) return true;
+        }
+
+        // Close dropdown if we couldn't pick
+        document.body.click();
+        await sleep(200);
+        return false;
+    }
+
+    function findDropdownTrigger(labelKeywords) {
         for (const kw of labelKeywords) {
             const lower = kw.toLowerCase();
 
-            // Look for aria-label on a listbox/combobox/button
+            // Look for aria-label on combobox/button
             const ariaEls = document.querySelectorAll(
                 `[aria-label*="${kw}" i][role="combobox"], [aria-label*="${kw}" i][role="button"], [aria-label*="${kw}" i][role="listbox"]`
             );
-            if (ariaEls.length > 0) { trigger = ariaEls[0]; break; }
+            if (ariaEls.length > 0) return ariaEls[0];
 
             // Look for a label/span near a clickable element
             const allSpans = document.querySelectorAll("label, span");
             for (const span of allSpans) {
                 const txt = span.textContent.trim().toLowerCase();
                 if (!txt.includes(lower) || txt.length > 40) continue;
-                // Walk up to find a clickable dropdown container
                 let container = span.parentElement;
                 for (let i = 0; i < 6 && container; i++) {
-                    // Facebook dropdown triggers are often divs with role or tabindex
                     const candidate = container.querySelector(
                         '[role="combobox"], [role="button"], [role="listbox"], [tabindex="0"]'
                     );
-                    if (candidate && candidate.getBoundingClientRect().width > 30) {
-                        trigger = candidate;
-                        break;
-                    }
+                    if (candidate && candidate.getBoundingClientRect().width > 30) return candidate;
                     container = container.parentElement;
                 }
-                if (trigger) break;
             }
-            if (trigger) break;
+        }
+        return null;
+    }
+
+    function findPopupSearchInput() {
+        // After clicking a dropdown, Facebook often shows a dialog/popup with a search input.
+        // Look for inputs inside elements with role="dialog", role="listbox", or high z-index containers.
+        const popupInputs = document.querySelectorAll(
+            '[role="dialog"] input, [role="listbox"] input, [role="combobox"] input'
+        );
+        for (const input of popupInputs) {
+            const rect = input.getBoundingClientRect();
+            if (rect.width > 30 && rect.height > 10) return input;
         }
 
-        if (!trigger) {
-            log(`  Dropdown trigger not found for: ${labelKeywords.join(", ")}`);
-            return false;
+        // Fallback: find any input that just appeared (wasn't in the form area)
+        // Check for inputs with aria-label containing "search" or "filter"
+        const searchInputs = document.querySelectorAll(
+            'input[aria-label*="search" i], input[aria-label*="filter" i], input[placeholder*="search" i], input[placeholder*="filter" i]'
+        );
+        for (const input of searchInputs) {
+            const rect = input.getBoundingClientRect();
+            if (rect.width > 30 && rect.height > 10) return input;
         }
 
-        log(`  Found dropdown trigger: <${trigger.tagName}> role="${trigger.getAttribute("role")}" aria="${trigger.getAttribute("aria-label")}"`);
+        // Last resort: look for any newly visible input that's in a fixed/absolute positioned container
+        const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
+        for (const input of allInputs) {
+            const rect = input.getBoundingClientRect();
+            if (rect.width < 30 || rect.height < 10) continue;
+            let el = input.parentElement;
+            for (let i = 0; i < 8 && el; i++) {
+                const style = window.getComputedStyle(el);
+                if (style.position === "fixed" || style.position === "absolute" ||
+                    parseInt(style.zIndex) > 100) {
+                    return input;
+                }
+                el = el.parentElement;
+            }
+        }
 
-        // Click to open the dropdown
-        trigger.scrollIntoView({ block: "center" });
-        await sleep(rand(150, 300));
-        trigger.click();
-        await sleep(rand(500, 800));
-
-        // Look for the dropdown menu / listbox that appeared
-        // Facebook renders these as role="listbox" or role="menu" or just a list of role="option" items
-        const picked = await pickOption(optionLower);
-        if (picked) return true;
-
-        // Sometimes need a second click or the menu takes longer
-        await sleep(500);
-        const picked2 = await pickOption(optionLower);
-        if (picked2) return true;
-
-        // Close the dropdown if we couldn't pick
-        document.body.click();
-        await sleep(200);
-        return false;
+        return null;
     }
 
     async function pickOption(optionLower) {
@@ -346,31 +398,30 @@
         );
 
         for (const opt of candidates) {
+            const rect = opt.getBoundingClientRect();
+            if (rect.width < 10 || rect.height < 10) continue;
             const txt = opt.textContent.trim().toLowerCase();
             if (txt.includes(optionLower) || optionLower.includes(txt)) {
                 log(`  Clicking option: "${opt.textContent.trim()}"`);
                 opt.scrollIntoView({ block: "center" });
-                await sleep(rand(100, 200));
+                await sleep(rand(100, 250));
                 opt.click();
                 await sleep(rand(300, 500));
                 return true;
             }
         }
 
-        // Fallback: look for any visible clickable element matching the text
+        // Fallback: match any visible element in a popup
         const allEls = document.querySelectorAll("div, span, li");
         for (const el of allEls) {
             const rect = el.getBoundingClientRect();
-            if (rect.width < 30 || rect.height < 15) continue;
-            // Only match leaf-ish elements (not huge containers)
-            if (el.children.length > 5) continue;
+            if (rect.width < 30 || rect.height < 15 || el.children.length > 5) continue;
             const txt = el.textContent.trim().toLowerCase();
             if (txt === optionLower || txt.includes(optionLower)) {
-                // Make sure it's in a popup/overlay (high z-index or fixed/absolute position)
                 const style = window.getComputedStyle(el);
-                const parentStyle = window.getComputedStyle(el.parentElement);
+                const pStyle = el.parentElement ? window.getComputedStyle(el.parentElement) : {};
                 const isPopup = style.position === "fixed" || style.position === "absolute"
-                    || parentStyle.position === "fixed" || parentStyle.position === "absolute"
+                    || pStyle.position === "fixed" || pStyle.position === "absolute"
                     || parseInt(style.zIndex) > 1;
                 if (isPopup || rect.top > 0) {
                     log(`  Clicking fallback match: "${el.textContent.trim()}"`);

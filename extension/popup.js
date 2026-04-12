@@ -163,6 +163,15 @@ async function fillListing(listingId) {
                 : "";
             showStatus(`Filled: ${filledStr}${skippedStr}. Review and post!`, "success");
 
+            // Open photos in a new tab so user can drag them into Facebook
+            if (listing.photos && listing.photos.length > 0) {
+                const photoUrls = listing.photos.map(p => `${API}${p.url}`);
+                chrome.tabs.create({
+                    url: chrome.runtime.getURL("photos.html") + "?photos=" + encodeURIComponent(JSON.stringify(photoUrls)) + "&name=" + encodeURIComponent(listing.name),
+                    active: false,
+                });
+            }
+
             // Mark as posted in FlipStack
             try {
                 await fetch(`${API}/api/listings/${listingId}`, {
