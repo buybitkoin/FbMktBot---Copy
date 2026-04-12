@@ -94,34 +94,40 @@
         el.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
-    // Smart fill — tries multiple strategies
+    // Smart fill — uses one strategy only (no double-filling)
     async function smartFill(el, value) {
         if (!el || !value) return false;
         const tag = el.tagName;
         const isEditable = el.getAttribute("contenteditable") === "true";
 
         try {
-            if (tag === "INPUT" || tag === "TEXTAREA") {
-                // Try React setter first
-                await fillReactInput(el, value);
-                // Verify it stuck
-                if (el.value === value) {
-                    log(`  ✓ React setter worked`);
-                    return true;
-                }
-                // Fallback: keyboard sim
-                log(`  React setter didn't stick, trying keyboard`);
-                await fillViaKeyboard(el, value);
-                return true;
-            } else if (isEditable) {
+            if (isEditable) {
                 await fillContentEditable(el, value);
                 log(`  ✓ ContentEditable fill`);
                 return true;
-            } else {
-                // Unknown element — try keyboard
-                await fillViaKeyboard(el, value);
+            }
+
+            if (tag === "INPUT" || tag === "TEXTAREA") {
+                // Clear the field first via select-all + delete
+                el.focus();
+                el.click();
+                await sleep(rand(100, 200));
+                el.select();
+                await sleep(50);
+                document.execCommand("delete", false, null);
+                await sleep(100);
+
+                // Use React native setter
+                setNativeValue(el, value);
+                el.dispatchEvent(new Event("blur", { bubbles: true }));
+                await sleep(rand(150, 300));
+                log(`  ✓ React setter fill (value now: "${el.value}")`);
                 return true;
             }
+
+            // Unknown element — try contentEditable approach
+            await fillContentEditable(el, value);
+            return true;
         } catch (err) {
             log(`  ✗ Fill error: ${err.message}`);
             return false;
