@@ -216,15 +216,42 @@ function attachListingEvents() {
 }
 
 async function copyText(text, btn) {
-    try {
-        await navigator.clipboard.writeText(text);
+    let success = false;
+
+    // Try modern clipboard API first (works on https and some localhost setups)
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            success = true;
+        } catch { /* fall through */ }
+    }
+
+    // Fallback: create a visible, focused textarea and execCommand
+    if (!success) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        // Must be visible and in the viewport for execCommand to work
+        ta.style.position = "fixed";
+        ta.style.left = "0";
+        ta.style.top = "0";
+        ta.style.width = "1px";
+        ta.style.height = "1px";
+        ta.style.opacity = "0.01";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+            success = document.execCommand("copy");
+        } catch { /* silent */ }
+        document.body.removeChild(ta);
+    }
+
+    if (success) {
         const orig = btn.textContent; btn.textContent = "Copied!"; btn.classList.add("copied");
         setTimeout(() => { btn.textContent = orig; btn.classList.remove("copied"); }, 1500);
         showToast("Copied to clipboard!");
-    } catch {
-        const ta = document.createElement("textarea"); ta.value = text;
-        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
-        showToast("Copied to clipboard!");
+    } else {
+        showToast("Copy failed — try selecting the text manually", true);
     }
 }
 
