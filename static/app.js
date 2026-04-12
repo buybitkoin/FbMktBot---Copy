@@ -181,7 +181,7 @@ function attachListingEvents() {
             if (!btn) return;
             const action = btn.dataset.action;
 
-            if (action === "copy") { await copyText(card.querySelector(`[data-field="${btn.dataset.field}"]`).value, btn); }
+            if (action === "copy") { await copyText(card.querySelector(`input[data-field="${btn.dataset.field}"], textarea[data-field="${btn.dataset.field}"]`).value, btn); }
             if (action === "copy-all") {
                 const n = card.querySelector('[data-field="name"]').value;
                 const d = card.querySelector('textarea[data-field="description"]').value;
