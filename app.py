@@ -4,6 +4,9 @@ import json
 import uuid
 import base64
 import sqlite3
+import shutil
+import subprocess
+import platform
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory, render_template, after_this_request
@@ -663,6 +666,81 @@ def add_photos(listing_id):
     conn.commit()
     conn.close()
     return jsonify({"photos": photo_records})
+
+
+@app.route("/api/listings/<listing_id>/export-photos", methods=["POST"])
+def export_photos(listing_id):
+    """Copy listing photos to a named folder in the user's Downloads directory and open it."""
+    conn = get_db()
+    listing = conn.execute("SELECT * FROM listings WHERE id = ?", (listing_id,)).fetchone()
+    if not listing:
+        conn.close()
+        return jsonify({"error": "Listing not found"}), 404
+
+    photos = conn.execute(
+        "SELECT * FROM photos WHERE listing_id = ? ORDER BY sort_order", (listing_id,)
+    ).fetchall()
+
+    if not photos:
+        conn.close()
+        return jsonify({"error": "No photos to export"}), 400
+
+    # Get batch name if applicable
+    batch_name = ""
+    if listing["batch_id"]:
+        batch = conn.execute("SELECT name FROM batches WHERE id = ?", (listing["batch_id"],)).fetchone()
+        if batch:
+            batch_name = batch["name"]
+    conn.close()
+
+    # Build folder name: "Batch Name - Listing Title" or just "Listing Title"
+    listing_name = listing["name"] or "Untitled"
+    if batch_name:
+        folder_name = f"{batch_name} - {listing_name}"
+    else:
+        folder_name = listing_name
+
+    # Sanitize folder name for filesystem
+    folder_name = re.sub(r'[<>:"/\\|?*]', '', folder_name).strip()
+    folder_name = folder_name[:100]  # limit length
+
+    # Create folder in user's Downloads directory
+    downloads_dir = Path.home() / "Downloads" / "FlipStack Exports" / folder_name
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy each photo
+    for photo in photos:
+        src = UPLOAD_DIR / photo["stored_filename"]
+        if src.exists():
+            # Use original filename if available, otherwise stored name
+            dest_name = photo["original_filename"] or photo["stored_filename"]
+            dest = downloads_dir / dest_name
+            # Handle duplicate filenames
+            counter = 1
+            while dest.exists():
+                stem = dest.stem
+                suffix = dest.suffix
+                dest = downloads_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
+            shutil.copy2(src, dest)
+
+    # Open the folder in file explorer
+    try:
+        system = platform.system()
+        if system == "Windows":
+            os.startfile(str(downloads_dir))
+        elif system == "Darwin":
+            subprocess.Popen(["open", str(downloads_dir)])
+        else:
+            subprocess.Popen(["xdg-open", str(downloads_dir)])
+    except Exception:
+        pass  # non-critical if explorer doesn't open
+
+    return jsonify({
+        "ok": True,
+        "folder": str(downloads_dir),
+        "count": len(photos),
+    })
 
 
 @app.route("/api/photos/<photo_id>", methods=["DELETE"])

@@ -356,6 +356,20 @@ select:focus { outline: none; border-color: var(--accent); }
 /* === LISTINGS === */
 .listings-section h2, .batches-section h2, .dashboard-section h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; }
 
+.btn-save-photos {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--accent-glow);
+    color: var(--accent-light);
+    border: 1px solid rgba(108,92,231,0.2);
+}
+.btn-save-photos:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
 .btn-facebook {
     display: inline-flex;
     align-items: center;

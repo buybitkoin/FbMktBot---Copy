@@ -165,6 +165,10 @@ function renderListingCard(listing) {
         </div>
         <div class="copy-all-row">
             <button class="btn btn-sm btn-copy" data-action="copy-all">Copy All to Clipboard</button>
+            <button class="btn btn-sm btn-save-photos" data-action="save-photos">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Save Photos
+            </button>
             <a href="https://www.facebook.com/marketplace/create/item#flipstack=${listing.id}" target="_blank" class="btn btn-sm btn-facebook" data-action="post-fb">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
                 Post on Marketplace
@@ -213,6 +217,19 @@ function attachListingEvents() {
                     try { await fetch(`/api/listings/${id}/photos`, { method: "POST", body: fd }); showToast("Photos added!"); loadListings(); } catch { showToast("Failed", true); }
                 };
                 input.click();
+            }
+            if (action === "save-photos") {
+                btn.disabled = true; btn.textContent = "Saving...";
+                try {
+                    const res = await fetch(`/api/listings/${id}/export-photos`, { method: "POST" });
+                    const data = await res.json();
+                    if (res.ok) {
+                        showToast(`Photos saved to: ${data.folder}`);
+                    } else {
+                        showToast(data.error || "Failed to save photos", true);
+                    }
+                } catch { showToast("Failed to save photos", true); }
+                btn.disabled = false; btn.textContent = "Save Photos";
             }
             if (action === "lightbox") openLightbox(btn.dataset.url);
         });
