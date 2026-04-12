@@ -101,25 +101,6 @@
         Drag each photo from here into the Facebook photo upload area. You can also right-click &rarr; Save Image to download first.
     </div>
     <div class="photos-grid" id="photos-grid"></div>
-
-    <script>
-        const params = new URLSearchParams(window.location.search);
-        const photos = JSON.parse(params.get("photos") || "[]");
-        const name = params.get("name") || "Listing";
-
-        document.getElementById("listing-name").textContent = name;
-        document.title = `FlipStack — ${name} Photos`;
-
-        const grid = document.getElementById("photos-grid");
-        photos.forEach((url, i) => {
-            const card = document.createElement("div");
-            card.className = "photo-card";
-            card.innerHTML = `
-                <img src="${url}" alt="Photo ${i + 1}" draggable="true">
-                <div class="photo-label">Photo ${i + 1}</div>
-            `;
-            grid.appendChild(card);
-        });
-    </script>
+    <script src="photos.js"></script>
 </body>
 </html>

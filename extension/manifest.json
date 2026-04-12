@@ -3,7 +3,7 @@
   "name": "FlipStack AI — Marketplace Filler",
   "version": "1.1.0",
   "description": "Autofill Facebook Marketplace listings from your FlipStack AI inventory.",
-  "permissions": ["activeTab", "scripting", "tabs"],
+  "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "http://localhost:5000/*",
     "https://www.facebook.com/*"
@@ -20,9 +20,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "background": {
-    "service_worker": "background.js"
   },
   "content_scripts": [
     {
