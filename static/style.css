@@ -355,6 +355,39 @@ select:focus { outline: none; border-color: var(--accent); }
 
 /* === LISTINGS === */
 .listings-section h2, .batches-section h2, .dashboard-section h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; }
+
+.listings-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.listings-header-row h2 { margin-bottom: 0; }
+
+.btn-facebook {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #1877f2;
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-facebook:hover {
+    background: #166fe5;
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(24,119,242,0.3);
+}
 .empty-state {
     text-align: center; color: var(--text-muted); padding: 3rem;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);

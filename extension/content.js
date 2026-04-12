@@ -274,13 +274,22 @@
     // 3. Wait for filtered results, then click the first matching option
     // 4. Fallback: if no search input, just scan for the option text and click it
 
+    // Track elements we've already filled so dropdowns never overwrite them
+    const usedElements = new Set();
+
     async function fillDropdown(labelKeywords, optionText) {
         const optionLower = optionText.toLowerCase();
 
-        // Find the dropdown trigger
+        // Find the dropdown trigger — EXCLUDE any elements we already filled
         let trigger = findDropdownTrigger(labelKeywords);
         if (!trigger) {
             log(`  Dropdown trigger not found for: ${labelKeywords.join(", ")}`);
+            return false;
+        }
+
+        // Safety: if the trigger IS a text input we already used, skip it
+        if (usedElements.has(trigger)) {
+            log(`  Dropdown trigger is a previously filled field — skipping`);
             return false;
         }
 
@@ -297,19 +306,16 @@
         if (searchInput) {
             log(`  Found search input in popup — typing "${optionText}"`);
             await smartFill(searchInput, optionText);
-            await sleep(rand(600, 1000)); // wait for search results to filter
+            await sleep(rand(600, 1000));
 
-            // Click the first matching option
             const picked = await pickOption(optionLower);
             if (picked) return true;
 
-            // Wait a bit more and try again
             await sleep(500);
             const picked2 = await pickOption(optionLower);
             if (picked2) return true;
         } else {
             log(`  No search input found, scanning options directly`);
-            // Try to pick from whatever options are visible
             const picked = await pickOption(optionLower);
             if (picked) return true;
             await sleep(500);
@@ -327,11 +333,17 @@
         for (const kw of labelKeywords) {
             const lower = kw.toLowerCase();
 
-            // Look for aria-label on combobox/button
+            // Look for aria-label on combobox/button — but NOT plain text inputs
             const ariaEls = document.querySelectorAll(
                 `[aria-label*="${kw}" i][role="combobox"], [aria-label*="${kw}" i][role="button"], [aria-label*="${kw}" i][role="listbox"]`
             );
-            if (ariaEls.length > 0) return ariaEls[0];
+            for (const el of ariaEls) {
+                // Skip if it's a text input we already filled
+                if (usedElements.has(el)) continue;
+                // Skip plain text inputs — dropdowns are divs/spans with role, not <input>
+                if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") continue;
+                return el;
+            }
 
             // Look for a label/span near a clickable element
             const allSpans = document.querySelectorAll("label, span");
@@ -340,10 +352,13 @@
                 if (!txt.includes(lower) || txt.length > 40) continue;
                 let container = span.parentElement;
                 for (let i = 0; i < 6 && container; i++) {
+                    // Only look for div/span triggers with role — NOT input/textarea
                     const candidate = container.querySelector(
-                        '[role="combobox"], [role="button"], [role="listbox"], [tabindex="0"]'
+                        'div[role="combobox"], div[role="button"], div[role="listbox"], span[role="combobox"], span[role="button"]'
                     );
-                    if (candidate && candidate.getBoundingClientRect().width > 30) return candidate;
+                    if (candidate && !usedElements.has(candidate) && candidate.getBoundingClientRect().width > 30) {
+                        return candidate;
+                    }
                     container = container.parentElement;
                 }
             }
@@ -352,35 +367,37 @@
     }
 
     function findPopupSearchInput() {
-        // After clicking a dropdown, Facebook often shows a dialog/popup with a search input.
-        // Look for inputs inside elements with role="dialog", role="listbox", or high z-index containers.
+        // After clicking a dropdown, Facebook shows a dialog/popup with a search input.
+        // ONLY look inside dialogs/overlays — never grab a form-level input.
         const popupInputs = document.querySelectorAll(
-            '[role="dialog"] input, [role="listbox"] input, [role="combobox"] input'
+            '[role="dialog"] input, [role="dialog"] textarea'
         );
         for (const input of popupInputs) {
+            if (usedElements.has(input)) continue;
             const rect = input.getBoundingClientRect();
             if (rect.width > 30 && rect.height > 10) return input;
         }
 
-        // Fallback: find any input that just appeared (wasn't in the form area)
-        // Check for inputs with aria-label containing "search" or "filter"
+        // Search/filter inputs with explicit labels
         const searchInputs = document.querySelectorAll(
             'input[aria-label*="search" i], input[aria-label*="filter" i], input[placeholder*="search" i], input[placeholder*="filter" i]'
         );
         for (const input of searchInputs) {
+            if (usedElements.has(input)) continue;
             const rect = input.getBoundingClientRect();
             if (rect.width > 30 && rect.height > 10) return input;
         }
 
-        // Last resort: look for any newly visible input that's in a fixed/absolute positioned container
+        // Last resort: input inside a fixed/absolute overlay (z-index > 100)
         const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
         for (const input of allInputs) {
+            if (usedElements.has(input)) continue;
             const rect = input.getBoundingClientRect();
             if (rect.width < 30 || rect.height < 10) continue;
             let el = input.parentElement;
             for (let i = 0; i < 8 && el; i++) {
                 const style = window.getComputedStyle(el);
-                if (style.position === "fixed" || style.position === "absolute" ||
+                if ((style.position === "fixed" || style.position === "absolute") &&
                     parseInt(style.zIndex) > 100) {
                     return input;
                 }
@@ -455,6 +472,7 @@
             log(`Title field found: <${titleField.tagName}> aria="${titleField.getAttribute("aria-label")}"`);
             const ok = await smartFill(titleField, listing.name);
             (ok ? results.filled : results.skipped).push("title");
+            usedElements.add(titleField); // protect from dropdown overwrite
         } else {
             log("Title field NOT found");
             results.skipped.push("title");
@@ -470,6 +488,7 @@
             const priceWhole = listing.price.replace(/[^0-9]/g, "").replace(/^0+/, "") || "0";
             const ok = await smartFill(priceField, priceWhole);
             (ok ? results.filled : results.skipped).push("price");
+            usedElements.add(priceField); // protect from dropdown overwrite
         } else {
             log(`Price field NOT found (price value: "${listing.price}")`);
             results.skipped.push("price");
@@ -524,6 +543,7 @@
             log(`Description field found: <${descField.tagName}> aria="${descField.getAttribute("aria-label")}"`);
             const ok = await smartFill(descField, fullDesc);
             (ok ? results.filled : results.skipped).push("description");
+            usedElements.add(descField);
         } else {
             log("Description field NOT found");
             results.skipped.push("description");
