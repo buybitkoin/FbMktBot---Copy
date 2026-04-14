@@ -171,8 +171,16 @@ function renderListingCard(listing) {
             </button>
             <button class="btn btn-sm btn-facebook" data-action="post-fb">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                Post on Marketplace
+                Facebook
             </button>
+            <a href="https://www.depop.com/products/create/" target="_blank" class="btn btn-sm btn-depop" data-action="post-depop">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                Depop
+            </a>
+            <a href="https://www.ebay.com/sl/sell" target="_blank" class="btn btn-sm btn-ebay" data-action="post-ebay">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5.8 9.4c-2 0-3.4 1-3.4 2.8 0 1.5.9 2.8 3.5 2.8 1.5 0 2.6-.5 3.2-1.3h.05v1.1h2V11c0-2.3-1.7-3.1-3.7-3.1-1.6 0-3 .6-3.4 2.1l2 .4c.2-.6.7-1 1.5-1 .9 0 1.4.4 1.4 1.1v.3h-1.7zm6.2-4h2.2v2.5h.05c.5-.9 1.5-1.5 2.8-1.5 2.2 0 3.7 1.7 3.7 4s-1.5 4-3.7 4c-1.2 0-2.2-.6-2.8-1.5h-.05v1.3H12V5.4z"/></svg>
+                eBay
+            </a>
         </div>
     </div>`;
 }

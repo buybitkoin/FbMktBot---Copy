@@ -6,7 +6,9 @@
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "http://localhost:5000/*",
-    "https://www.facebook.com/*"
+    "https://www.facebook.com/*",
+    "https://www.depop.com/*",
+    "https://www.ebay.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -25,6 +27,16 @@
     {
       "matches": ["https://www.facebook.com/marketplace/create/*"],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.depop.com/products/create/*"],
+      "js": ["content-depop.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.ebay.com/sl/sell*"],
+      "js": ["content-ebay.js"],
       "run_at": "document_idle"
     }
   ]

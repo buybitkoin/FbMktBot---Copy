@@ -392,6 +392,52 @@ select:focus { outline: none; border-color: var(--accent); }
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(24,119,242,0.3);
 }
+
+.btn-depop {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #ff2300;
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-depop:hover {
+    background: #e01f00;
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255,35,0,0.3);
+}
+
+.btn-ebay {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: #0064d2;
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-ebay:hover {
+    background: #0054b0;
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,100,210,0.3);
+}
 .empty-state {
     text-align: center; color: var(--text-muted); padding: 3rem;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
