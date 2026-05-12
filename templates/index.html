@@ -57,6 +57,22 @@
         </div>
     </header>
 
+    <div id="link-hint-banner" class="link-hint-banner" hidden>
+        <span class="link-hint-icon">💡</span>
+        <span class="link-hint-text">
+            <strong>Pro tip:</strong> The item number badges (like <span class="link-hint-example">#3</span>) are clickable links — click one in Inventory to jump straight to that listing, or click it in Listings to jump back to the inventory row.
+        </span>
+        <button class="link-hint-dismiss" id="link-hint-dismiss">Got it</button>
+    </div>
+
+    <div id="expand-hint-banner" class="link-hint-banner" hidden>
+        <span class="link-hint-icon">💡</span>
+        <span class="link-hint-text">
+            <strong>Pro tip:</strong> Hit the <span class="link-hint-example" style="font-size:0.8em;letter-spacing:0.02em">⛶</span> expand button on any batch to go full-screen — you can keep adding items and editing the table without losing your place.
+        </span>
+        <button class="link-hint-dismiss" id="expand-hint-dismiss">Got it</button>
+    </div>
+
     <main>
         <!-- ==================== INVENTORY TAB ==================== -->
         <div class="tab-content active" id="tab-inventory">
@@ -85,7 +101,16 @@
             </section>
 
             <section class="batches-section">
-                <h2>Your Batches</h2>
+                <div class="listings-section-header">
+                    <h2>Your Batches</h2>
+                    <div class="listing-filters" id="batch-filters">
+                        <button class="filter-btn active" data-filter="all">All <span class="filter-count">0</span></button>
+                        <button class="filter-btn" data-filter="unlisted">Unlisted <span class="filter-count">0</span></button>
+                        <button class="filter-btn" data-filter="listed">Listed <span class="filter-count">0</span></button>
+                        <button class="filter-btn" data-filter="aging">Aging <span class="filter-count">0</span></button>
+                        <button class="filter-btn" data-filter="sold">Sold <span class="filter-count">0</span></button>
+                    </div>
+                </div>
                 <div id="batches-container">
                     <p class="empty-state" id="batches-empty">No batches yet. Create one above!</p>
                 </div>
@@ -115,16 +140,38 @@
                     </div>
                     <input type="file" id="file-input" multiple accept="image/*" hidden>
                 </div>
-                <button id="upload-btn" class="btn btn-accent" disabled>
-                    <span class="btn-text">Upload &amp; Analyze</span>
-                    <span class="btn-loading" hidden>
-                        <span class="spinner"></span> Analyzing with AI...
-                    </span>
-                </button>
+                <div class="upload-btn-row">
+                    <button id="upload-btn" class="btn btn-accent" disabled>
+                        <span class="btn-text">Upload &amp; Analyze</span>
+                        <span class="btn-loading" hidden>
+                            <span class="spinner"></span> Analyzing with AI...
+                        </span>
+                    </button>
+                    <button id="no-photo-btn" class="btn btn-ghost">No Photo</button>
+                </div>
             </section>
 
             <section class="listings-section">
-                <h2>Your Listings</h2>
+                <div class="listings-section-header">
+                    <h2>Your Listings</h2>
+                    <div class="listing-filters" id="listing-filters">
+                        <button class="filter-btn active" data-filter="all">
+                            All <span class="filter-count">0</span>
+                        </button>
+                        <button class="filter-btn" data-filter="unlisted">
+                            Unlisted <span class="filter-count">0</span>
+                        </button>
+                        <button class="filter-btn" data-filter="listed">
+                            Listed <span class="filter-count">0</span>
+                        </button>
+                        <button class="filter-btn" data-filter="aging">
+                            Aging <span class="filter-count">0</span>
+                        </button>
+                        <button class="filter-btn" data-filter="sold">
+                            Sold <span class="filter-count">0</span>
+                        </button>
+                    </div>
+                </div>
                 <div id="listings-container">
                     <p class="empty-state" id="empty-msg">No listings yet. Upload some photos to get started!</p>
                 </div>
@@ -195,10 +242,123 @@
                             <button class="btn btn-sm btn-ghost" id="reset-categories-btn">Reset</button>
                         </div>
                     </div>
+                    <!-- Aging Listings -->
+                    <div class="settings-group">
+                        <h3>Aging Listing Threshold</h3>
+                        <p class="muted">Flag items as "Aging Listing" if they have been listed longer than this many days.</p>
+                        <div class="aging-row">
+                            <input type="number" id="aging-days-input" min="1" max="365" value="30" style="width:90px;">
+                            <span class="muted">days</span>
+                            <button class="btn btn-sm btn-accent" id="save-aging-btn">Save</button>
+                        </div>
+                    </div>
+                    <!-- Delete Undo Timer -->
+                    <div class="settings-group">
+                        <h3>Delete Undo Timer</h3>
+                        <p class="muted">How long you have to undo an item deletion before it's permanent.</p>
+                        <div class="aging-row">
+                            <input type="number" id="undo-timer-input" min="2" max="30" value="5" style="width:90px;">
+                            <span class="muted">seconds</span>
+                            <button class="btn btn-sm btn-accent" id="save-undo-timer-btn">Save</button>
+                        </div>
+                    </div>
+                    <!-- Pinterest -->
+                    <div class="settings-group">
+                        <h3>Pinterest</h3>
+                        <div id="pinterest-disconnected">
+                            <p class="muted">Post listings directly as Pinterest pins with one click.</p>
+                            <p class="muted" style="margin-top:0.4rem">Add <code>PINTEREST_CLIENT_ID</code> and <code>PINTEREST_CLIENT_SECRET</code> to your <code>.env</code>, then connect below.</p>
+                            <button class="btn btn-sm btn-pinterest-connect" id="pinterest-connect-btn">Connect Pinterest</button>
+                        </div>
+                        <div id="pinterest-connected" hidden>
+                            <div class="pinterest-status">
+                                <span class="pinterest-status-dot"></span>
+                                <span>Connected</span>
+                                <button class="btn btn-sm btn-ghost" id="pinterest-disconnect-btn" style="margin-left:auto">Disconnect</button>
+                            </div>
+                            <div class="pinterest-board-row">
+                                <label>Default Board</label>
+                                <select id="pinterest-board-select"><option value="">Loading boards…</option></select>
+                                <button class="btn btn-sm btn-accent" id="pinterest-save-board-btn">Save</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
+
+        <!-- Shared datalists (populated via JS) -->
+        <datalist id="brand-options"></datalist>
+        <datalist id="size-options">
+            <!-- Letter sizes -->
+            <option value="XXS"><option value="XS"><option value="S">
+            <option value="M"><option value="L"><option value="XL">
+            <option value="XXL"><option value="XXXL">
+            <!-- Women's numeric -->
+            <option value="00"><option value="0"><option value="2">
+            <option value="4"><option value="6"><option value="8">
+            <option value="10"><option value="12"><option value="14">
+            <option value="16"><option value="18"><option value="20">
+            <!-- Men's / juniors -->
+            <option value="28"><option value="29"><option value="30">
+            <option value="31"><option value="32"><option value="33">
+            <option value="34"><option value="36"><option value="38">
+            <option value="40"><option value="42"><option value="44">
+            <!-- US Shoe sizes -->
+            <option value="5"><option value="5.5"><option value="6">
+            <option value="6.5"><option value="7"><option value="7.5">
+            <option value="8"><option value="8.5"><option value="9">
+            <option value="9.5"><option value="10"><option value="10.5">
+            <option value="11"><option value="11.5"><option value="12">
+            <option value="12.5"><option value="13"><option value="13.5">
+            <option value="14">
+            <!-- Kids -->
+            <option value="2T"><option value="3T"><option value="4T">
+            <option value="5T"><option value="6K"><option value="7K">
+            <option value="8K"><option value="10K"><option value="12K">
+            <option value="14K"><option value="16K">
+            <!-- One Size -->
+            <option value="One Size">
+        </datalist>
     </main>
+
+    <!-- ==================== BATCH EDIT MODAL ==================== -->
+    <div id="batch-edit-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="batch-edit-title">
+            <div class="modal-header">
+                <h2 id="batch-edit-title">Edit Batch</h2>
+                <button class="modal-close" id="batch-edit-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-field">
+                    <label for="be-name">Batch Name</label>
+                    <input type="text" id="be-name" class="modal-input" placeholder="e.g. Goodwill Run #4">
+                </div>
+                <div class="modal-row">
+                    <div class="modal-field">
+                        <label for="be-total">Total Spent ($)</label>
+                        <div class="currency-wrap">
+                            <span>$</span>
+                            <input type="number" id="be-total" class="modal-input" min="0" step="0.01" placeholder="0.00">
+                        </div>
+                    </div>
+                    <div class="modal-field">
+                        <label for="be-expected">Items Expected</label>
+                        <input type="number" id="be-expected" class="modal-input" min="0" step="1" placeholder="0">
+                    </div>
+                    <div class="modal-field">
+                        <label>Items Uploaded</label>
+                        <div class="modal-readonly" id="be-uploaded">—</div>
+                    </div>
+                </div>
+                <p class="muted" style="margin-top:.5rem;font-size:.8rem">Changing the total or expected count will rebalance costs across unlocked items.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="batch-edit-cancel">Cancel</button>
+                <button class="btn btn-accent" id="batch-edit-save">Save Changes</button>
+            </div>
+        </div>
+    </div>
 
     <div id="toast" class="toast" hidden></div>
     <script src="/static/app.js"></script>

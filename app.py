@@ -7,7 +7,11 @@ import sqlite3
 import shutil
 import subprocess
 import platform
+from datetime import date as dt_date
 from pathlib import Path
+from urllib.request import urlopen, Request
+from urllib.parse import urlencode
+import urllib.error
 
 from flask import Flask, request, jsonify, send_from_directory, render_template, after_this_request
 from dotenv import load_dotenv
@@ -16,6 +20,13 @@ from io import BytesIO
 from PIL import Image
 
 MAX_API_IMAGE_BYTES = 3_700_000  # ~3.7MB raw = ~4.9MB base64, under Claude's 5MB limit
+
+# --- Pinterest API ---
+_PINTEREST_AUTH_URL    = "https://www.pinterest.com/oauth/"
+_PINTEREST_TOKEN_URL   = "https://api.pinterest.com/v5/oauth/token"
+_PINTEREST_API_BASE    = "https://api.pinterest.com/v5"
+_PINTEREST_REDIRECT    = "http://localhost:5000/api/pinterest/callback"
+_PINTEREST_SCOPES      = "boards:read,pins:write"
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
@@ -85,12 +96,18 @@ def init_db():
             description TEXT NOT NULL DEFAULT '',
             hashtags TEXT NOT NULL DEFAULT '',
             category TEXT NOT NULL DEFAULT '',
+            brand TEXT NOT NULL DEFAULT '',
+            size TEXT NOT NULL DEFAULT '',
             cost REAL NOT NULL DEFAULT 0,
             cost_locked INTEGER NOT NULL DEFAULT 0,
             list_price REAL NOT NULL DEFAULT 0,
             sale_price REAL NOT NULL DEFAULT 0,
-            shipping_cost REAL NOT NULL DEFAULT 0,
+            processing_cost REAL NOT NULL DEFAULT 0,
+            other_fees REAL NOT NULL DEFAULT 0,
             posted INTEGER NOT NULL DEFAULT 0,
+            date_listed TEXT,
+            date_sold TEXT,
+            item_number INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL
         );
@@ -106,6 +123,10 @@ def init_db():
             sort_order INTEGER DEFAULT 0,
             FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS brands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        );
     """)
     conn.commit()
     conn.close()
@@ -119,24 +140,85 @@ def migrate_db():
     conn = get_db()
     cursor = conn.execute("PRAGMA table_info(listings)")
     columns = [row[1] for row in cursor.fetchall()]
+
+    # One-time rename: shipping_cost → processing_cost
+    if "shipping_cost" in columns and "processing_cost" not in columns:
+        conn.execute("ALTER TABLE listings RENAME COLUMN shipping_cost TO processing_cost")
+        columns = ["processing_cost" if c == "shipping_cost" else c for c in columns]
+
     migrations = {
-        "batch_id": "ALTER TABLE listings ADD COLUMN batch_id TEXT",
-        "cost": "ALTER TABLE listings ADD COLUMN cost REAL NOT NULL DEFAULT 0",
-        "cost_locked": "ALTER TABLE listings ADD COLUMN cost_locked INTEGER NOT NULL DEFAULT 0",
-        "category": "ALTER TABLE listings ADD COLUMN category TEXT NOT NULL DEFAULT ''",
-        "list_price": "ALTER TABLE listings ADD COLUMN list_price REAL NOT NULL DEFAULT 0",
-        "sale_price": "ALTER TABLE listings ADD COLUMN sale_price REAL NOT NULL DEFAULT 0",
-        "shipping_cost": "ALTER TABLE listings ADD COLUMN shipping_cost REAL NOT NULL DEFAULT 0",
-        "posted": "ALTER TABLE listings ADD COLUMN posted INTEGER NOT NULL DEFAULT 0",
+        "batch_id":        "ALTER TABLE listings ADD COLUMN batch_id TEXT",
+        "cost":            "ALTER TABLE listings ADD COLUMN cost REAL NOT NULL DEFAULT 0",
+        "cost_locked":     "ALTER TABLE listings ADD COLUMN cost_locked INTEGER NOT NULL DEFAULT 0",
+        "category":        "ALTER TABLE listings ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+        "list_price":      "ALTER TABLE listings ADD COLUMN list_price REAL NOT NULL DEFAULT 0",
+        "sale_price":      "ALTER TABLE listings ADD COLUMN sale_price REAL NOT NULL DEFAULT 0",
+        "processing_cost": "ALTER TABLE listings ADD COLUMN processing_cost REAL NOT NULL DEFAULT 0",
+        "other_fees":      "ALTER TABLE listings ADD COLUMN other_fees REAL NOT NULL DEFAULT 0",
+        "posted":          "ALTER TABLE listings ADD COLUMN posted INTEGER NOT NULL DEFAULT 0",
+        "brand":           "ALTER TABLE listings ADD COLUMN brand TEXT NOT NULL DEFAULT ''",
+        "size":            "ALTER TABLE listings ADD COLUMN size TEXT NOT NULL DEFAULT ''",
+        "date_listed":     "ALTER TABLE listings ADD COLUMN date_listed TEXT",
+        "date_sold":       "ALTER TABLE listings ADD COLUMN date_sold TEXT",
+        "item_number":     "ALTER TABLE listings ADD COLUMN item_number INTEGER",
     }
     for col, sql in migrations.items():
         if col not in columns:
             conn.execute(sql)
+    # Ensure brands table exists for older installs
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS brands "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)"
+    )
     conn.commit()
     conn.close()
 
 
 migrate_db()
+
+
+# --- Item-number sequence (never reused even after deletion) ---
+
+def next_item_number(conn):
+    """Atomically increment and return the next global item number (starts at 0)."""
+    row = conn.execute("SELECT value FROM settings WHERE key = 'item_number_seq'").fetchone()
+    current = int(row["value"]) if row else -1
+    next_num = current + 1
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('item_number_seq', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (str(next_num),),
+    )
+    return next_num
+
+
+def save_brand(conn, brand):
+    """Upsert a brand name so it appears in autocomplete suggestions."""
+    if brand and brand.strip():
+        conn.execute("INSERT OR IGNORE INTO brands (name) VALUES (?)", (brand.strip(),))
+
+
+def get_aging_days():
+    """Return the number of days after which a listed item is considered 'aging'."""
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'aging_days'").fetchone()
+    conn.close()
+    return int(row["value"]) if row else 30
+
+
+def compute_status(listing, aging_days):
+    """Derive listing status from its data fields."""
+    if listing["sale_price"] > 0:
+        return "sold"
+    if not listing["date_listed"]:
+        return "unlisted"
+    try:
+        listed = dt_date.fromisoformat(listing["date_listed"])
+        if (dt_date.today() - listed).days > aging_days:
+            return "aging"
+    except Exception:
+        pass
+    return "listed"
 
 
 def rebalance_batch_costs(conn, batch_id):
@@ -479,20 +561,27 @@ def delete_batch(batch_id):
 
 # --- Listing Routes ---
 
-def listing_to_dict(listing, photos):
+def listing_to_dict(listing, photos, aging_days=30):
     return {
         "id": listing["id"],
+        "item_number": listing["item_number"],
         "batch_id": listing["batch_id"],
         "name": listing["name"],
         "description": listing["description"],
         "hashtags": listing["hashtags"],
         "category": listing["category"],
+        "brand": listing["brand"] or "",
+        "size": listing["size"] or "",
         "cost": listing["cost"],
         "cost_locked": bool(listing["cost_locked"]),
         "list_price": listing["list_price"],
         "sale_price": listing["sale_price"],
-        "shipping_cost": listing["shipping_cost"],
+        "processing_cost": listing["processing_cost"],
+        "other_fees": listing["other_fees"],
         "posted": bool(listing["posted"]),
+        "date_listed": listing["date_listed"] or "",
+        "date_sold": listing["date_sold"] or "",
+        "status": compute_status(listing, aging_days),
         "created_at": listing["created_at"],
         "photos": [
             {
@@ -509,6 +598,7 @@ def listing_to_dict(listing, photos):
 @app.route("/api/listings", methods=["GET"])
 def get_listings():
     conn = get_db()
+    aging_days = get_aging_days()
     listings = conn.execute(
         "SELECT * FROM listings ORDER BY created_at DESC"
     ).fetchall()
@@ -519,7 +609,7 @@ def get_listings():
             "SELECT * FROM photos WHERE listing_id = ? ORDER BY sort_order",
             (listing["id"],)
         ).fetchall()
-        result.append(listing_to_dict(listing, photos))
+        result.append(listing_to_dict(listing, photos, aging_days))
     conn.close()
     return jsonify(result)
 
@@ -556,6 +646,8 @@ def create_listing():
     listing_id = uuid.uuid4().hex[:12]
     batch_id = request.form.get("batch_id") or None
     category = request.form.get("category") or ""
+    brand = request.form.get("brand", "").strip()
+    size = request.form.get("size", "").strip()
 
     default_cost = 0
     if batch_id:
@@ -566,10 +658,15 @@ def create_listing():
         conn.close()
 
     conn = get_db()
+    item_num = next_item_number(conn)
     conn.execute(
-        "INSERT INTO listings (id, batch_id, name, description, hashtags, category, cost) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (listing_id, batch_id, ai_result["name"], ai_result["description"], ai_result["hashtags"], category, default_cost),
+        "INSERT INTO listings (id, batch_id, name, description, hashtags, category, brand, size, cost, item_number) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (listing_id, batch_id, ai_result["name"], ai_result["description"],
+         ai_result["hashtags"], category, brand, size, default_cost, item_num),
     )
+    if brand:
+        save_brand(conn, brand)
     if batch_id:
         rebalance_batch_costs(conn, batch_id)
 
@@ -598,16 +695,24 @@ def create_listing():
 
     return jsonify({
         "id": listing_id,
+        "item_number": item_num,
         "batch_id": batch_id,
         "name": ai_result["name"],
         "description": ai_result["description"],
         "hashtags": ai_result["hashtags"],
         "category": category,
+        "brand": brand,
+        "size": size,
         "cost": default_cost,
         "cost_locked": False,
         "list_price": 0,
         "sale_price": 0,
-        "shipping_cost": 0,
+        "processing_cost": 0,
+        "other_fees": 0,
+        "posted": False,
+        "date_listed": "",
+        "date_sold": "",
+        "status": "unlisted",
         "photos": photo_records,
     })
 
@@ -626,22 +731,52 @@ def update_listing(listing_id):
     desc = data.get("description", listing["description"])
     tags = data.get("hashtags", listing["hashtags"])
     category = data.get("category", listing["category"])
+    brand = data.get("brand", listing["brand"] or "").strip()
+    size = data.get("size", listing["size"] or "").strip()
     cost = float(data.get("cost", listing["cost"]))
     cost_locked = int(data.get("cost_locked", listing["cost_locked"]))
     list_price = float(data.get("list_price", listing["list_price"]))
     sale_price = float(data.get("sale_price", listing["sale_price"]))
-    shipping_cost = float(data.get("shipping_cost", listing["shipping_cost"]))
+    processing_cost = float(data.get("processing_cost", listing["processing_cost"]))
+    other_fees = float(data.get("other_fees", listing["other_fees"]))
     posted = int(data.get("posted", listing["posted"]))
+    # Empty string → NULL so status logic works correctly
+    date_listed = data.get("date_listed", listing["date_listed"] or "") or None
+    date_sold = data.get("date_sold", listing["date_sold"] or "") or None
+    # Callers can set skip_rebalance=true to save values as-is without redistribution
+    skip_rebalance = bool(data.get("skip_rebalance", False))
+
+    # batch_id: only update when the key is explicitly present in the request body
+    old_batch_id = listing["batch_id"]
+    if "batch_id" in data:
+        new_batch_id = data["batch_id"] or None
+    else:
+        new_batch_id = old_batch_id
 
     conn.execute(
         """UPDATE listings SET name=?, description=?, hashtags=?, category=?,
-           cost=?, cost_locked=?, list_price=?, sale_price=?, shipping_cost=?, posted=?
+           brand=?, size=?, date_listed=?, date_sold=?,
+           cost=?, cost_locked=?, list_price=?, sale_price=?,
+           processing_cost=?, other_fees=?, posted=?, batch_id=?
            WHERE id=?""",
-        (name, desc, tags, category, cost, cost_locked, list_price, sale_price, shipping_cost, posted, listing_id),
+        (name, desc, tags, category, brand, size, date_listed, date_sold,
+         cost, cost_locked, list_price, sale_price,
+         processing_cost, other_fees, posted, new_batch_id, listing_id),
     )
+    if brand:
+        save_brand(conn, brand)
 
-    if listing["batch_id"] and (cost != listing["cost"] or cost_locked != listing["cost_locked"]):
-        rebalance_batch_costs(conn, listing["batch_id"])
+    batch_changed = new_batch_id != old_batch_id
+    if batch_changed:
+        # Rebalance both the old batch (item left) and the new batch (item joined)
+        if old_batch_id:
+            rebalance_batch_costs(conn, old_batch_id)
+        if new_batch_id:
+            rebalance_batch_costs(conn, new_batch_id)
+    elif (not skip_rebalance
+            and new_batch_id
+            and (cost != listing["cost"] or cost_locked != listing["cost_locked"])):
+        rebalance_batch_costs(conn, new_batch_id)
 
     conn.commit()
     conn.close()
@@ -795,6 +930,42 @@ def delete_photo(photo_id):
     return jsonify({"ok": True})
 
 
+# --- Brands Routes ---
+
+@app.route("/api/brands", methods=["GET"])
+def get_brands():
+    conn = get_db()
+    rows = conn.execute("SELECT name FROM brands ORDER BY name COLLATE NOCASE").fetchall()
+    conn.close()
+    return jsonify([r["name"] for r in rows])
+
+
+# --- Aging-Days Setting ---
+
+@app.route("/api/settings/aging-days", methods=["GET"])
+def get_aging_days_api():
+    return jsonify({"aging_days": get_aging_days()})
+
+
+@app.route("/api/settings/aging-days", methods=["PUT"])
+def save_aging_days_api():
+    data = request.json
+    try:
+        days = int(data.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, days)
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('aging_days', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (str(days),),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "aging_days": days})
+
+
 # --- Dashboard Routes ---
 
 @app.route("/api/dashboard", methods=["GET"])
@@ -806,8 +977,9 @@ def get_dashboard():
     total_cost = sum(l["cost"] for l in listings)
     total_list = sum(l["list_price"] for l in listings)
     total_sale = sum(l["sale_price"] for l in listings)
-    total_shipping = sum(l["shipping_cost"] for l in listings)
-    total_revenue = total_sale - total_shipping
+    total_processing = sum(l["processing_cost"] for l in listings)
+    total_other = sum(l["other_fees"] for l in listings)
+    total_revenue = total_sale - total_processing - total_other
     total_profit = total_revenue - total_cost
     total_items = len(listings)
     sold_items = sum(1 for l in listings if l["sale_price"] > 0)
@@ -819,18 +991,19 @@ def get_dashboard():
         bid = l["batch_id"] or "__none__"
         bname = batch_map.get(bid, "Unassigned")
         if bid not in by_batch:
-            by_batch[bid] = {"name": bname, "cost": 0, "list_price": 0, "sale_price": 0, "shipping_cost": 0, "items": 0, "sold": 0}
+            by_batch[bid] = {"name": bname, "cost": 0, "list_price": 0, "sale_price": 0, "processing_cost": 0, "other_fees": 0, "items": 0, "sold": 0}
         by_batch[bid]["cost"] += l["cost"]
         by_batch[bid]["list_price"] += l["list_price"]
         by_batch[bid]["sale_price"] += l["sale_price"]
-        by_batch[bid]["shipping_cost"] += l["shipping_cost"]
+        by_batch[bid]["processing_cost"] += l["processing_cost"]
+        by_batch[bid]["other_fees"] += l["other_fees"]
         by_batch[bid]["items"] += 1
         if l["sale_price"] > 0:
             by_batch[bid]["sold"] += 1
 
     batch_list = []
     for bid, data in by_batch.items():
-        rev = data["sale_price"] - data["shipping_cost"]
+        rev = data["sale_price"] - data["processing_cost"] - data["other_fees"]
         batch_list.append({
             "id": bid,
             "name": data["name"],
@@ -847,18 +1020,19 @@ def get_dashboard():
     for l in listings:
         cat = l["category"] or "Uncategorized"
         if cat not in by_category:
-            by_category[cat] = {"cost": 0, "list_price": 0, "sale_price": 0, "shipping_cost": 0, "items": 0, "sold": 0}
+            by_category[cat] = {"cost": 0, "list_price": 0, "sale_price": 0, "processing_cost": 0, "other_fees": 0, "items": 0, "sold": 0}
         by_category[cat]["cost"] += l["cost"]
         by_category[cat]["list_price"] += l["list_price"]
         by_category[cat]["sale_price"] += l["sale_price"]
-        by_category[cat]["shipping_cost"] += l["shipping_cost"]
+        by_category[cat]["processing_cost"] += l["processing_cost"]
+        by_category[cat]["other_fees"] += l["other_fees"]
         by_category[cat]["items"] += 1
         if l["sale_price"] > 0:
             by_category[cat]["sold"] += 1
 
     category_list = []
     for cat, data in by_category.items():
-        rev = data["sale_price"] - data["shipping_cost"]
+        rev = data["sale_price"] - data["processing_cost"] - data["other_fees"]
         category_list.append({
             "name": cat,
             "cost": round(data["cost"], 2),
@@ -872,7 +1046,7 @@ def get_dashboard():
     # Individual items for drill-down
     item_list = []
     for l in listings:
-        rev = l["sale_price"] - l["shipping_cost"]
+        rev = l["sale_price"] - l["processing_cost"] - l["other_fees"]
         item_list.append({
             "id": l["id"],
             "name": l["name"],
@@ -882,7 +1056,8 @@ def get_dashboard():
             "cost": round(l["cost"], 2),
             "list_price": round(l["list_price"], 2),
             "sale_price": round(l["sale_price"], 2),
-            "shipping_cost": round(l["shipping_cost"], 2),
+            "processing_cost": round(l["processing_cost"], 2),
+            "other_fees": round(l["other_fees"], 2),
             "revenue": round(rev, 2),
             "profit": round(rev - l["cost"], 2),
         })
@@ -900,6 +1075,289 @@ def get_dashboard():
         "by_batch": batch_list,
         "by_category": category_list,
         "items": item_list,
+    })
+
+
+@app.route("/api/listings/no-photo", methods=["POST"])
+def create_listing_no_photo():
+    """Create a listing with just a name — no photos, no AI analysis."""
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    batch_id = data.get("batch_id") or None
+    category = data.get("category") or ""
+
+    default_cost = 0
+    if batch_id:
+        conn_tmp = get_db()
+        batch = conn_tmp.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+        if batch and batch["item_count"] > 0:
+            default_cost = round(batch["total_cost"] / batch["item_count"], 2)
+        conn_tmp.close()
+
+    conn = get_db()
+    listing_id = uuid.uuid4().hex[:12]
+    item_num = next_item_number(conn)
+    conn.execute(
+        "INSERT INTO listings "
+        "(id, batch_id, name, description, hashtags, category, cost, item_number) "
+        "VALUES (?, ?, ?, '', '', ?, ?, ?)",
+        (listing_id, batch_id, name, category, default_cost, item_num),
+    )
+    if batch_id:
+        rebalance_batch_costs(conn, batch_id)
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "id": listing_id,
+        "item_number": item_num,
+        "batch_id": batch_id,
+        "name": name,
+        "description": "",
+        "hashtags": "",
+        "category": category,
+        "brand": "",
+        "size": "",
+        "cost": default_cost,
+        "cost_locked": False,
+        "list_price": 0,
+        "sale_price": 0,
+        "processing_cost": 0,
+        "other_fees": 0,
+        "posted": False,
+        "date_listed": "",
+        "date_sold": "",
+        "status": "unlisted",
+        "photos": [],
+    })
+
+
+# --- Pinterest helpers ---
+
+def _pinterest_token():
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key='pinterest_token'").fetchone()
+    conn.close()
+    return json.loads(row["value"]) if row else None
+
+
+def _save_pinterest_token(token_data):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO settings (key,value) VALUES ('pinterest_token',?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps(token_data),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _pinterest_get(path, token):
+    """GET from Pinterest API; returns (dict, status_code)."""
+    req = Request(
+        f"{_PINTEREST_API_BASE}{path}",
+        headers={"Authorization": f"Bearer {token['access_token']}"},
+    )
+    try:
+        with urlopen(req) as r:
+            return json.loads(r.read()), r.status
+    except urllib.error.HTTPError as e:
+        return json.loads(e.read() or b"{}"), e.code
+
+
+def _pinterest_post(path, token, payload):
+    """POST JSON to Pinterest API; returns (dict, status_code)."""
+    body = json.dumps(payload).encode()
+    req = Request(
+        f"{_PINTEREST_API_BASE}{path}",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token['access_token']}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urlopen(req) as r:
+            return json.loads(r.read()), r.status
+    except urllib.error.HTTPError as e:
+        return json.loads(e.read() or b"{}"), e.code
+
+
+# --- Pinterest routes ---
+
+@app.route("/api/pinterest/status", methods=["GET"])
+def pinterest_status():
+    client_id = os.getenv("PINTEREST_CLIENT_ID", "")
+    token = _pinterest_token()
+    return jsonify({
+        "connected": bool(token),
+        "configured": bool(client_id),
+    })
+
+
+@app.route("/api/pinterest/auth", methods=["GET"])
+def pinterest_auth():
+    client_id = os.getenv("PINTEREST_CLIENT_ID", "")
+    if not client_id:
+        return jsonify({"error": "Add PINTEREST_CLIENT_ID and PINTEREST_CLIENT_SECRET to your .env file first."}), 400
+    params = urlencode({
+        "client_id":    client_id,
+        "redirect_uri": _PINTEREST_REDIRECT,
+        "response_type": "code",
+        "scope":        _PINTEREST_SCOPES,
+    })
+    return jsonify({"url": f"{_PINTEREST_AUTH_URL}?{params}"})
+
+
+@app.route("/api/pinterest/callback", methods=["GET"])
+def pinterest_callback():
+    code  = request.args.get("code", "")
+    error = request.args.get("error", "")
+    if error:
+        return f"<p>Pinterest error: {error}. Close this window.</p>"
+    if not code:
+        return "<p>No code returned by Pinterest.</p>", 400
+
+    client_id     = os.getenv("PINTEREST_CLIENT_ID", "")
+    client_secret = os.getenv("PINTEREST_CLIENT_SECRET", "")
+    creds_b64 = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    body = urlencode({
+        "grant_type":   "authorization_code",
+        "code":         code,
+        "redirect_uri": _PINTEREST_REDIRECT,
+    }).encode()
+    req = Request(
+        _PINTEREST_TOKEN_URL,
+        data=body,
+        headers={
+            "Authorization":  f"Basic {creds_b64}",
+            "Content-Type":   "application/x-www-form-urlencoded",
+        },
+    )
+    try:
+        with urlopen(req) as r:
+            token_data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return f"<p>Token exchange failed: {e.read().decode()}</p>", 400
+
+    _save_pinterest_token(token_data)
+    return """<!DOCTYPE html><html><body>
+    <script>
+        if (window.opener) { window.opener.postMessage('pinterest_connected','*'); }
+        window.close();
+    </script>
+    <p>Pinterest connected! You can close this window.</p>
+    </body></html>"""
+
+
+@app.route("/api/pinterest/disconnect", methods=["DELETE"])
+def pinterest_disconnect():
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM settings WHERE key IN "
+        "('pinterest_token','pinterest_board_id','pinterest_board_name')"
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pinterest/boards", methods=["GET"])
+def pinterest_boards():
+    token = _pinterest_token()
+    if not token:
+        return jsonify({"error": "Not connected to Pinterest"}), 401
+    data, status = _pinterest_get("/boards?page_size=100", token)
+    if status == 401:
+        return jsonify({"error": "Pinterest session expired — please reconnect"}), 401
+    if status >= 400:
+        return jsonify({"error": data.get("message", "Failed to fetch boards")}), status
+
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key='pinterest_board_id'").fetchone()
+    saved_board_id = row["value"] if row else None
+    conn.close()
+    return jsonify({
+        "boards": [{"id": b["id"], "name": b["name"]} for b in data.get("items", [])],
+        "selected_board_id": saved_board_id,
+    })
+
+
+@app.route("/api/pinterest/boards/select", methods=["PUT"])
+def pinterest_select_board():
+    data      = request.json or {}
+    board_id  = data.get("board_id", "")
+    board_name = data.get("board_name", "")
+    conn = get_db()
+    for key, val in [("pinterest_board_id", board_id), ("pinterest_board_name", board_name)]:
+        conn.execute(
+            "INSERT INTO settings (key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, val),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/listings/<listing_id>/post-pinterest", methods=["POST"])
+def post_to_pinterest(listing_id):
+    token = _pinterest_token()
+    if not token:
+        return jsonify({"error": "Not connected to Pinterest — connect in Settings first."}), 401
+
+    conn = get_db()
+    listing = conn.execute("SELECT * FROM listings WHERE id=?", (listing_id,)).fetchone()
+    if not listing:
+        conn.close()
+        return jsonify({"error": "Listing not found"}), 404
+
+    photos = conn.execute(
+        "SELECT * FROM photos WHERE listing_id=? ORDER BY sort_order LIMIT 1",
+        (listing_id,),
+    ).fetchall()
+    board_row = conn.execute(
+        "SELECT value FROM settings WHERE key='pinterest_board_id'"
+    ).fetchone()
+    conn.close()
+
+    if not board_row or not board_row["value"]:
+        return jsonify({"error": "No Pinterest board selected — choose one in Settings first."}), 400
+
+    # Build the pin
+    description = f"{listing['description']}\n\n{listing['hashtags']}".strip()
+    pin = {
+        "board_id":    board_row["value"],
+        "title":       (listing["name"] or "")[:100],
+        "description": description[:500],
+    }
+
+    if photos:
+        photo_path = UPLOAD_DIR / photos[0]["stored_filename"]
+        if photo_path.exists():
+            shrink_image_if_needed(photo_path)
+            pin["media_source"] = {
+                "source_type":  "image_base64",
+                "content_type": get_media_type(photos[0]["stored_filename"]),
+                "data":         encode_image_base64(photo_path),
+            }
+
+    result, status = _pinterest_post("/pins", token, pin)
+    if status == 401:
+        return jsonify({"error": "Pinterest session expired — please reconnect in Settings."}), 401
+    if status >= 400:
+        msg = result.get("message") or result.get("error_description") or "Pinterest API error"
+        return jsonify({"error": msg}), status
+
+    pin_id = result.get("id", "")
+    return jsonify({
+        "ok": True,
+        "pin_id":  pin_id,
+        "pin_url": f"https://pinterest.com/pin/{pin_id}" if pin_id else "",
     })
 
 
