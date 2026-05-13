@@ -647,6 +647,10 @@ select:focus { outline: none; border-color: var(--accent); }
 
 .batch-card { overflow: hidden; }
 
+/* Collapse-all: hide everything inside the card except the header */
+.batch-card.body-collapsed > *:not(.batch-card-header) { display: none !important; }
+.batch-card.body-collapsed { border-radius: var(--radius); }
+
 /* Full-screen expand */
 .batch-card.expanded {
     position: fixed;

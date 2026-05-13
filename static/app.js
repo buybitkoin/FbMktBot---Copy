@@ -14,6 +14,8 @@ let firstListingThisSession = true;
 
 // Expanded batch card state (null = none, "" = batchless, "123" = batch id)
 let expandedBatchId = null;
+// Global collapse-all state for batch cards
+let batchesCollapsed = false;
 
 // Delete-with-undo state
 const pendingDeleteIds = new Set();
@@ -930,6 +932,11 @@ function renderBatches() {
             document.body.classList.remove("card-expanded");
         }
     }
+
+    // Re-apply collapse-all state after re-render
+    if (batchesCollapsed) {
+        batchesContainer.querySelectorAll(".batch-card").forEach(c => c.classList.add("body-collapsed"));
+    }
 }
 
 function updateBatchFilterCounts(listings) {
@@ -941,6 +948,31 @@ function updateBatchFilterCounts(listings) {
         if (span) span.textContent = counts[btn.dataset.filter] ?? 0;
     });
 }
+
+// Collapse-all toggle
+(function () {
+    const btn      = document.getElementById("collapse-batches-btn");
+    const label    = document.getElementById("collapse-btn-label");
+    const poly     = document.getElementById("collapse-icon-poly");
+
+    function syncBtn() {
+        if (batchesCollapsed) {
+            label.textContent = "Expand All";
+            poly.setAttribute("points", "2,4 6.5,9 11,4"); // chevron down
+        } else {
+            label.textContent = "Collapse All";
+            poly.setAttribute("points", "2,9 6.5,4 11,9"); // chevron up
+        }
+    }
+
+    btn.addEventListener("click", () => {
+        batchesCollapsed = !batchesCollapsed;
+        batchesContainer.querySelectorAll(".batch-card").forEach(card => {
+            card.classList.toggle("body-collapsed", batchesCollapsed);
+        });
+        syncBtn();
+    });
+})();
 
 // Batch filter pill clicks
 document.getElementById("batch-filters").querySelectorAll(".filter-btn").forEach(btn => {
