@@ -16,6 +16,8 @@ let firstListingThisSession = true;
 let expandedBatchId = null;
 // Global collapse-all state for batch cards
 let batchesCollapsed = false;
+// Unassigned items card — starts collapsed, immune to collapse-all
+let batchlessCollapsed = true;
 
 // Batch list controls
 let batchPage = 0;
@@ -861,9 +863,10 @@ function renderBatchlessCard(displayListings, totalCount) {
         </div>`;
     }
 
+    const blChevronPts = batchlessCollapsed ? "2,4 6.5,9 11,4" : "2,9 6.5,4 11,9";
     return `
-    <div class="batch-card batchless-card" data-batch-id="" data-batchless="true" data-batch-total="0">
-        <div class="batch-card-header">
+    <div class="batch-card batchless-card${batchlessCollapsed ? ' body-collapsed' : ''}" data-batch-id="" data-batchless="true" data-batch-total="0">
+        <div class="batch-card-header" data-action="toggle-card">
             <div class="batch-info">
                 <h3>Unassigned Items <span class="batchless-count-badge">${totalCount}</span></h3>
                 <div class="batch-stats">
@@ -871,6 +874,9 @@ function renderBatchlessCard(displayListings, totalCount) {
                 </div>
             </div>
             <div class="batch-actions">
+                <button class="btn btn-sm btn-ghost batch-card-chevron" data-action="toggle-card" title="Expand/collapse unassigned items">
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline class="batch-chevron-poly" points="${blChevronPts}"/></svg>
+                </button>
                 <button class="btn btn-sm btn-accent" data-action="add-item">+ Add Item</button>
                 <button class="btn btn-sm btn-ghost btn-expand-card" data-action="expand-card" title="Expand to full screen">${ICON_EXPAND}</button>
             </div>
@@ -996,13 +1002,23 @@ function renderBatches() {
         }
     }
 
-    // Re-apply collapse-all state (but not to individually-expanded cards)
+    // Re-apply collapse-all state to regular batch cards only (batchless has its own state)
     if (batchesCollapsed) {
-        batchesContainer.querySelectorAll(".batch-card").forEach(c => {
+        batchesContainer.querySelectorAll(".batch-card:not(.batchless-card)").forEach(c => {
             if (!c.classList.contains("individually-expanded")) {
                 c.classList.add("body-collapsed");
             }
         });
+    }
+    // Batchless card always follows its own independent state
+    // (already baked in by renderBatchlessCard, but sync after any re-render)
+    const blCard = batchesContainer.querySelector(".batchless-card");
+    if (blCard) {
+        blCard.classList.toggle("body-collapsed", batchlessCollapsed);
+        const poly = blCard.querySelector(".batch-chevron-poly");
+        if (poly) {
+            poly.setAttribute("points", batchlessCollapsed ? "2,4 6.5,9 11,4" : "2,9 6.5,4 11,9");
+        }
     }
 }
 
@@ -1034,7 +1050,7 @@ function updateBatchFilterCounts(listings) {
 
     btn.addEventListener("click", () => {
         batchesCollapsed = !batchesCollapsed;
-        batchesContainer.querySelectorAll(".batch-card").forEach(card => {
+        batchesContainer.querySelectorAll(".batch-card:not(.batchless-card)").forEach(card => {
             card.classList.toggle("body-collapsed", batchesCollapsed);
         });
         syncBtn();
@@ -1558,11 +1574,13 @@ function attachBatchEvents() {
                 const isCollapsed = card.classList.contains("body-collapsed");
                 if (isCollapsed) {
                     card.classList.remove("body-collapsed");
-                    card.classList.add("individually-expanded");
+                    if (!isBatchless) card.classList.add("individually-expanded");
                 } else {
                     card.classList.add("body-collapsed");
-                    card.classList.remove("individually-expanded");
+                    if (!isBatchless) card.classList.remove("individually-expanded");
                 }
+                // Persist batchless state independently
+                if (isBatchless) batchlessCollapsed = !isCollapsed;
                 // Sync chevron icon
                 const poly = card.querySelector(".batch-chevron-poly");
                 if (poly) {
