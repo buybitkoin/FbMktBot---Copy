@@ -93,11 +93,6 @@
                     </div>
                     <button class="btn btn-accent" id="create-batch-btn">Create Batch</button>
                 </div>
-                <!-- Success callout after batch creation -->
-                <div class="batch-created-callout" id="batch-created-callout" hidden>
-                    <p>Batch created! Ready to upload items.</p>
-                    <button class="btn btn-accent" id="go-to-listings-btn">Go to Listings &rarr;</button>
-                </div>
             </section>
 
             <section class="batches-section">
@@ -181,17 +176,85 @@
         <!-- ==================== DASHBOARD TAB ==================== -->
         <div class="tab-content" id="tab-dashboard">
             <section class="dashboard-section">
-                <h2>Profit &amp; Loss Dashboard</h2>
-                <div class="summary-cards" id="summary-cards"></div>
-                <div class="drill-down-controls">
-                    <label>View by:</label>
-                    <select id="drill-down-select">
-                        <option value="batch">Batch</option>
-                        <option value="category">Category</option>
-                        <option value="item">Item</option>
+
+                <!-- Dashboard switcher -->
+                <div class="dashboard-switcher">
+                    <select id="dashboard-select" class="dashboard-select">
+                        <option value="pl">Profit &amp; Loss</option>
+                        <option value="ops">Operational</option>
                     </select>
                 </div>
-                <div class="drill-down-table" id="drill-down-table"></div>
+
+                <!-- ── P&L DASHBOARD ── -->
+                <div id="dash-pl">
+                    <div class="summary-cards" id="summary-cards"></div>
+
+                    <!-- Profit Over Time -->
+                    <div class="dashboard-timeline">
+                        <div class="tl-header">
+                            <h3>Profit Over Time</h3>
+                            <div class="tl-controls">
+                                <div class="tl-quick-group">
+                                    <button class="tl-quick active" data-range="ytd">YTD</button>
+                                    <button class="tl-quick" data-range="mtd">MTD</button>
+                                    <button class="tl-quick" data-range="30d">Last 30d</button>
+                                    <button class="tl-quick" data-range="today">Today</button>
+                                    <button class="tl-quick" data-range="all">All Time</button>
+                                </div>
+                                <div class="tl-date-range">
+                                    <input type="date" id="tl-from" title="From date">
+                                    <span class="tl-date-sep">–</span>
+                                    <input type="date" id="tl-to" title="To date">
+                                </div>
+                                <div class="tl-gran-group">
+                                    <button class="tl-gran" data-gran="day">Day</button>
+                                    <button class="tl-gran active" data-gran="month">Month</button>
+                                    <button class="tl-gran" data-gran="year">Year</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="timeline-summary"></div>
+                        <div id="timeline-chart"></div>
+                    </div>
+
+                    <!-- P&L drill-down table -->
+                    <div class="drill-down-controls" style="margin-top:2rem">
+                        <label>Break down by:</label>
+                        <select id="drill-down-select">
+                            <option value="batch">Batch</option>
+                            <option value="category">Category</option>
+                            <option value="item">Item</option>
+                        </select>
+                    </div>
+                    <div class="drill-down-table" id="drill-down-table"></div>
+                </div>
+
+                <!-- ── OPERATIONAL DASHBOARD ── -->
+                <div id="dash-ops" hidden>
+                    <div class="summary-cards" id="ops-summary-cards"></div>
+
+                    <!-- Aging listings -->
+                    <div class="ops-panel">
+                        <div class="ops-panel-header">
+                            <h3>Aging Listings</h3>
+                            <span class="muted" id="ops-aging-hint"></span>
+                        </div>
+                        <div id="ops-aging-table"></div>
+                    </div>
+
+                    <!-- Breakdown by batch / category -->
+                    <div class="ops-panel" style="margin-top:1.5rem">
+                        <div class="ops-panel-header">
+                            <h3>Sell-Through by</h3>
+                            <select id="ops-breakdown-select" class="dashboard-select">
+                                <option value="batch">Batch</option>
+                                <option value="category">Category</option>
+                            </select>
+                        </div>
+                        <div id="ops-breakdown-table"></div>
+                    </div>
+                </div>
+
             </section>
         </div>
 
@@ -260,6 +323,16 @@
                             <input type="number" id="undo-timer-input" min="2" max="30" value="5" style="width:90px;">
                             <span class="muted">seconds</span>
                             <button class="btn btn-sm btn-accent" id="save-undo-timer-btn">Save</button>
+                        </div>
+                    </div>
+                    <!-- Bulk Mode Gap -->
+                    <div class="settings-group">
+                        <h3>Bulk Mode Gap</h3>
+                        <p class="muted">Photos taken within this time window of each other are treated as the same clothing item in Bulk Mode.</p>
+                        <div class="aging-row">
+                            <input type="number" id="bulk-gap-input" min="5" max="600" value="90" style="width:90px;">
+                            <span class="muted">seconds</span>
+                            <button class="btn btn-sm btn-accent" id="save-bulk-gap-btn">Save</button>
                         </div>
                     </div>
                     <!-- Pinterest -->
@@ -356,6 +429,25 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" id="batch-edit-cancel">Cancel</button>
                 <button class="btn btn-accent" id="batch-edit-save">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="no-photo-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="no-photo-modal-title">
+            <div class="modal-header">
+                <h2 id="no-photo-modal-title">Add Item Without Photo</h2>
+                <button class="modal-close" id="no-photo-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-field">
+                    <label for="no-photo-name-input">Item Name</label>
+                    <input type="text" id="no-photo-name-input" class="modal-input" placeholder="e.g. Levi's 501 Jeans">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="no-photo-modal-cancel">Cancel</button>
+                <button class="btn btn-accent" id="no-photo-modal-confirm">Create Listing</button>
             </div>
         </div>
     </div>

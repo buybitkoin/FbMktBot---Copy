@@ -23,6 +23,13 @@ let _undoPendingConfirm = null;  // called if a second delete fires while one is
 const UNDO_TIMER_KEY = "flipstack_undo_timer_secs";
 let undoDeleteMs = (parseInt(localStorage.getItem(UNDO_TIMER_KEY)) || 5) * 1000;
 
+const BULK_GAP_KEY = "flipstack_bulk_gap_secs";
+let bulkGapMs = (parseInt(localStorage.getItem(BULK_GAP_KEY)) || 90) * 1000;
+
+// Bulk review state
+let _bulkReviewGroups  = null;   // File[][] — null when not in review
+let _bulkReviewBlobUrls = [];    // revoke when panel is torn down
+
 // === ELEMENTS ===
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("file-input");
@@ -389,14 +396,14 @@ function attachListingEvents() {
 
             if (action === "copy") { await copyText(card.querySelector(`input[data-field="${btn.dataset.field}"], textarea[data-field="${btn.dataset.field}"]`).value, btn); }
             if (action === "copy-all") {
-                const n = card.querySelector('[data-field="name"]').value;
+                const n = card.querySelector('input[data-field="name"]').value;
                 const d = card.querySelector('textarea[data-field="description"]').value;
                 const t = card.querySelector('textarea[data-field="hashtags"]').value;
                 await copyText(`${n}\n\n${d}\n\n${t}`, btn);
             }
             if (action === "save") {
                 const body = {
-                    name: card.querySelector('[data-field="name"]').value,
+                    name: card.querySelector('input[data-field="name"]').value,
                     description: card.querySelector('textarea[data-field="description"]').value,
                     hashtags: card.querySelector('textarea[data-field="hashtags"]').value,
                     category: card.querySelector('[data-field="category"]').value,
@@ -749,16 +756,10 @@ document.getElementById("create-batch-btn").addEventListener("click", async () =
             showToast("Batch created!");
             loadBatches();
             loadBatchSelectDropdown();
-            // Show the "Go to Listings" callout
-            document.getElementById("batch-created-callout").hidden = false;
         }
     } catch { showToast("Failed to create batch", true); }
 });
 
-document.getElementById("go-to-listings-btn").addEventListener("click", () => {
-    document.getElementById("batch-created-callout").hidden = true;
-    switchTab("listings");
-});
 
 async function loadBatches() {
     try {
@@ -992,12 +993,12 @@ function renderBatchCard(batch, listings, displayListings = listings) {
                 </div>
                 <div class="inline-file-previews"></div>
                 <div class="inline-upload-actions">
-                    <label class="bulk-mode-row" title="Drop every photo for the whole batch at once — AI groups them by clothing item and creates one listing per item">
+                    <label class="bulk-mode-row" title="Upload every photo for the whole batch at once — photos taken within the gap time (set in Settings) are grouped into one listing automatically">
                         <span class="toggle-switch">
                             <input type="checkbox" class="bulk-mode-toggle">
                             <span class="toggle-slider"></span>
                         </span>
-                        <span class="bulk-mode-label">Bulk Mode <span class="bulk-mode-hint">— AI sorts all photos by item</span></span>
+                        <span class="bulk-mode-label">Bulk Mode <span class="bulk-mode-hint">— groups by time taken</span></span>
                     </label>
                     <div class="inline-upload-btns">
                         <button class="btn btn-sm btn-accent inline-upload-btn" disabled>
@@ -1167,6 +1168,141 @@ function rebalanceBatchTable(card) {
 const ICON_EXPAND   = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`;
 const ICON_COLLAPSE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>`;
 
+/**
+ * Group files by photo timestamp. Consecutive photos taken within gapMs of
+ * each other are considered the same clothing item. Files are sorted by
+ * lastModified ascending before grouping so order always matches capture order.
+ */
+function groupByTimestamp(files, gapMs) {
+    const sorted = [...files].sort((a, b) => a.lastModified - b.lastModified);
+    const groups = [];
+    let current = [];
+    for (const f of sorted) {
+        if (!current.length || f.lastModified - current[current.length - 1].lastModified <= gapMs) {
+            current.push(f);
+        } else {
+            groups.push(current);
+            current = [f];
+        }
+    }
+    if (current.length) groups.push(current);
+    return groups;
+}
+
+/** Tear down the bulk review panel and free blob URLs. */
+function closeBulkReview(card) {
+    _bulkReviewBlobUrls.forEach(u => URL.revokeObjectURL(u));
+    _bulkReviewBlobUrls = [];
+    _bulkReviewGroups   = null;
+    card.querySelector(".bulk-review-panel")?.remove();
+}
+
+/** (Re-)render the bulk review panel inside the given batch card. */
+function showBulkReview(card, groups) {
+    // Free any previous blob URLs before creating new ones
+    _bulkReviewBlobUrls.forEach(u => URL.revokeObjectURL(u));
+    _bulkReviewBlobUrls = [];
+    _bulkReviewGroups   = groups.map(g => [...g]);   // working copy
+
+    const rowsHtml = _bulkReviewGroups.map((group, gi) => {
+        const photosHtml = group.map((file, pi) => {
+            const url = URL.createObjectURL(file);
+            _bulkReviewBlobUrls.push(url);
+            return `<div class="brp-photo-wrap" draggable="true" data-group="${gi}" data-pos="${pi}">
+                        <img src="${url}" class="brp-photo" alt="" draggable="false">
+                    </div>`;
+        }).join("");
+        return `<div class="brp-row" data-group="${gi}">
+                    <span class="brp-label">Item ${gi + 1}</span>
+                    <div class="brp-photos" data-group="${gi}">${photosHtml}</div>
+                </div>`;
+    }).join("");
+
+    // Remove any existing panel then create a fresh one
+    card.querySelector(".bulk-review-panel")?.remove();
+    const panel = document.createElement("div");
+    panel.className = "bulk-review-panel";
+    panel.innerHTML = `
+        <div class="brp-header">
+            <strong>${_bulkReviewGroups.length} item${_bulkReviewGroups.length !== 1 ? "s" : ""} detected</strong>
+            — drag photos between rows to fix mis-groupings, then confirm.
+        </div>
+        <div class="brp-list">
+            ${rowsHtml}
+            <div class="brp-row brp-new-item" data-group="__new__">
+                <span class="brp-label brp-new-label">New Item</span>
+                <div class="brp-photos brp-new-drop" data-group="__new__">
+                    <span class="brp-new-hint">drop a photo here</span>
+                </div>
+            </div>
+        </div>
+        <div class="brp-actions">
+            <button class="btn btn-accent" data-action="bulk-confirm">Confirm &amp; Upload</button>
+            <button class="btn btn-ghost" data-action="bulk-cancel-review">Cancel</button>
+        </div>`;
+
+    // Insert after the inline-upload section
+    const inlineSection = card.querySelector(".batch-inline-upload");
+    inlineSection.after(panel);
+
+    wireBulkReviewDrag(panel, card);
+}
+
+function wireBulkReviewDrag(panel, card) {
+    let dragSrcGroup = null;
+    let dragSrcPos   = null;
+
+    panel.querySelectorAll(".brp-photo-wrap").forEach(wrap => {
+        wrap.addEventListener("dragstart", (e) => {
+            dragSrcGroup = parseInt(wrap.dataset.group);
+            dragSrcPos   = parseInt(wrap.dataset.pos);
+            e.dataTransfer.effectAllowed = "move";
+            setTimeout(() => wrap.classList.add("dragging"), 0);
+        });
+        wrap.addEventListener("dragend", () => {
+            panel.querySelectorAll(".brp-photo-wrap").forEach(w => w.classList.remove("dragging"));
+            panel.querySelectorAll(".brp-row").forEach(r => r.classList.remove("drag-over"));
+        });
+    });
+
+    panel.querySelectorAll(".brp-row").forEach(row => {
+        row.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            panel.querySelectorAll(".brp-row").forEach(r => r.classList.remove("drag-over"));
+            row.classList.add("drag-over");
+        });
+        row.addEventListener("dragleave", (e) => {
+            if (!row.contains(e.relatedTarget)) row.classList.remove("drag-over");
+        });
+        row.addEventListener("drop", (e) => {
+            e.preventDefault();
+            row.classList.remove("drag-over");
+            if (dragSrcGroup === null) return;
+
+            const isNewItem = row.dataset.group === "__new__";
+            const targetGroup = isNewItem ? null : parseInt(row.dataset.group);
+
+            if (!isNewItem && targetGroup === dragSrcGroup) return;
+
+            // Remove file from its current group
+            const [file] = _bulkReviewGroups[dragSrcGroup].splice(dragSrcPos, 1);
+
+            if (isNewItem) {
+                // Create a new group for this photo
+                _bulkReviewGroups.push([file]);
+            } else {
+                _bulkReviewGroups[targetGroup].push(file);
+            }
+
+            // Prune empty groups, re-render
+            _bulkReviewGroups = _bulkReviewGroups.filter(g => g.length > 0);
+            dragSrcGroup = null; dragSrcPos = null;
+            showBulkReview(card, _bulkReviewGroups);
+        });
+    });
+}
+
 // === BATCH EDIT MODAL ===
 const batchEditModal    = document.getElementById("batch-edit-modal");
 const batchEditName     = document.getElementById("be-name");
@@ -1294,6 +1430,47 @@ function attachBatchEvents() {
             }
         });
 
+        // Arrow-key navigation in inventory table rows
+        card.addEventListener("keydown", (e) => {
+            const el = e.target;
+            const isPrice = el.classList.contains("cost-input");
+            const isDate  = el.classList.contains("date-shorthand-input");
+            if (!isPrice && !isDate) return;
+
+            const { key } = e;
+
+            // Up / Down → move to the same column in the previous / next row
+            if (key === "ArrowUp" || key === "ArrowDown") {
+                e.preventDefault();
+                const td = el.closest("td");
+                const tr = td?.closest("tr");
+                const tbody = tr?.closest("tbody");
+                if (!tbody) return;
+                const rows = Array.from(tbody.rows);
+                const targetRow = key === "ArrowUp" ? rows[rows.indexOf(tr) - 1]
+                                                    : rows[rows.indexOf(tr) + 1];
+                if (!targetRow) return;
+                const targetInput = targetRow.cells[td.cellIndex]
+                                              ?.querySelector("input:not([type='checkbox'])");
+                if (targetInput) { targetInput.focus(); targetInput.select?.(); }
+                return;
+            }
+
+            // Left / Right (price inputs only) → move between price/date cells in the same row
+            // Date inputs keep their normal cursor-movement behaviour for left/right.
+            if ((key === "ArrowLeft" || key === "ArrowRight") && isPrice) {
+                e.preventDefault();
+                const tr = el.closest("tr");
+                if (!tr) return;
+                const navInputs = Array.from(
+                    tr.querySelectorAll("input.cost-input, input.date-shorthand-input")
+                );
+                const idx = navInputs.indexOf(el);
+                const target = key === "ArrowLeft" ? navInputs[idx - 1] : navInputs[idx + 1];
+                if (target) { target.focus(); target.select?.(); }
+            }
+        });
+
         // Sortable column headers
         card.querySelectorAll("th.sort-col").forEach(th => {
             th.addEventListener("click", () => {
@@ -1337,49 +1514,39 @@ function attachBatchEvents() {
         const bulkToggle = card.querySelector(".bulk-mode-toggle");
         if (bulkToggle) {
             bulkToggle.addEventListener("change", () => {
-                const bulk = bulkToggle.checked;
                 const btnText = inlineUploadBtn.querySelector(".btn-text");
-                if (btnText) btnText.textContent = bulk ? "Upload & Auto-Sort" : "Upload & Analyze";
+                if (btnText) btnText.textContent = bulkToggle.checked ? "Group & Review" : "Upload & Analyze";
             });
         }
 
         inlineUploadBtn.addEventListener("click", async () => {
             const files = inlineFilesMap.get(batchId) || [];
             if (!files.length) return;
-
             const isBulk = !isBatchless && bulkToggle?.checked && !!batchId;
-            const loadingText = inlineUploadBtn.querySelector(".loading-text");
 
+            if (isBulk) {
+                // Show the review panel — no loading spinner, no API call yet
+                showBulkReview(card, groupByTimestamp(files, bulkGapMs));
+                return;
+            }
+
+            // ── Normal mode: single listing per upload ──
+            const loadingText = inlineUploadBtn.querySelector(".loading-text");
             inlineUploadBtn.disabled = true;
             inlineUploadBtn.querySelector(".btn-text").hidden = true;
             inlineUploadBtn.querySelector(".btn-loading").hidden = false;
-            if (loadingText) loadingText.textContent = isBulk ? "Sorting & analyzing…" : "Analyzing…";
-
+            if (loadingText) loadingText.textContent = "Analyzing…";
             try {
                 const fd = new FormData();
                 files.forEach(f => fd.append("photos", f));
-
-                if (isBulk) {
-                    // ── Bulk mode: one API call groups all photos, creates N listings ──
-                    const res = await fetch(`/api/batches/${batchId}/bulk-analyze`, { method: "POST", body: fd });
-                    const data = await res.json();
-                    if (!res.ok) { showToast(data.error || "Bulk analysis failed", true); return; }
-                    inlineFilesMap.delete(batchId);
-                    inlineSection.hidden = true;
-                    const n = data.listings_created;
-                    showToast(`${n} item${n !== 1 ? "s" : ""} created from ${files.length} photos!`);
-                    await loadBatches();
-                } else {
-                    // ── Normal mode: single listing per upload ──
-                    if (batchId) fd.append("batch_id", batchId);
-                    const res = await fetch("/api/listings", { method: "POST", body: fd });
-                    const data = await res.json();
-                    if (!res.ok) { showToast(data.error || "Upload failed", true); return; }
-                    inlineFilesMap.delete(batchId);
-                    inlineSection.hidden = true;
-                    showToast("Item added! AI drafted your listing.");
-                    await loadBatches();
-                }
+                if (batchId) fd.append("batch_id", batchId);
+                const res = await fetch("/api/listings", { method: "POST", body: fd });
+                const data = await res.json();
+                if (!res.ok) { showToast(data.error || "Upload failed", true); return; }
+                inlineFilesMap.delete(batchId);
+                inlineSection.hidden = true;
+                showToast("Item added! AI drafted your listing.");
+                await loadBatches();
             } catch (err) {
                 showToast("Upload failed: " + err.message, true);
             } finally {
@@ -1395,6 +1562,37 @@ function attachBatchEvents() {
             if (!btn) return;
             const action = btn.dataset.action;
 
+            if (action === "bulk-cancel-review") {
+                closeBulkReview(card);
+                return;
+            }
+            if (action === "bulk-confirm") {
+                if (!_bulkReviewGroups || !batchId) return;
+                const groups = _bulkReviewGroups;
+                btn.disabled = true;
+                btn.textContent = `Uploading 1 of ${groups.length}…`;
+                let succeeded = 0, failed = 0;
+                for (let i = 0; i < groups.length; i++) {
+                    btn.textContent = `Uploading ${i + 1} of ${groups.length}…`;
+                    const gfd = new FormData();
+                    groups[i].forEach(f => gfd.append("photos", f));
+                    gfd.append("batch_id", batchId);
+                    try {
+                        const res = await fetch("/api/listings", { method: "POST", body: gfd });
+                        if (res.ok) succeeded++; else failed++;
+                    } catch { failed++; }
+                }
+                closeBulkReview(card);
+                inlineFilesMap.delete(batchId);
+                inlineSection.hidden = true;
+                if (failed === 0) {
+                    showToast(`${succeeded} item${succeeded !== 1 ? "s" : ""} created!`);
+                } else {
+                    showToast(`${succeeded} created, ${failed} failed.`, true);
+                }
+                await loadBatches();
+                return;
+            }
             if (action === "expand-card") {
                 const isExpanded = card.classList.toggle("expanded");
                 btn.innerHTML = isExpanded ? ICON_COLLAPSE : ICON_EXPAND;
@@ -1416,10 +1614,10 @@ function attachBatchEvents() {
                 return;
             }
             if (action === "no-photo-upload") {
-                const itemName = prompt("Enter item name:");
-                if (!itemName || !itemName.trim()) return;
+                const itemName = await window.openNoPhotoModal();
+                if (!itemName) return;
                 try {
-                    const body = { name: itemName.trim() };
+                    const body = { name: itemName };
                     if (batchId) body.batch_id = batchId;
                     const res = await fetch("/api/listings/no-photo", {
                         method: "POST",
@@ -1572,6 +1770,7 @@ async function loadDashboard() {
         dashboardData = await res.json();
         renderSummaryCards(dashboardData.summary);
         renderDrillDown();
+        loadTimeline();
     } catch (e) { console.error(e); }
 }
 
@@ -1580,28 +1779,54 @@ function renderSummaryCards(s) {
     document.getElementById("summary-cards").innerHTML = `
         <div class="summary-card"><div class="card-label">Total Cost</div><div class="card-value">$${s.total_cost.toFixed(2)}</div></div>
         <div class="summary-card"><div class="card-label">Total List Price</div><div class="card-value">$${s.total_list_price.toFixed(2)}</div></div>
-        <div class="summary-card"><div class="card-label">Revenue (Sales - Shipping)</div><div class="card-value">$${s.total_revenue.toFixed(2)}</div></div>
+        <div class="summary-card"><div class="card-label">Revenue (Gross Sales)</div><div class="card-value">$${s.total_revenue.toFixed(2)}</div></div>
         <div class="summary-card ${profitClass}"><div class="card-label">Profit / Loss</div><div class="card-value">${s.total_profit >= 0 ? "+" : ""}$${s.total_profit.toFixed(2)}</div></div>
         <div class="summary-card"><div class="card-label">Items</div><div class="card-value">${s.total_items} total / ${s.sold_items} sold</div></div>
     `;
 }
 
-document.getElementById("drill-down-select").addEventListener("change", renderDrillDown);
+const DRILL_PAGE_SIZE = 50;
+let drillDownPage = 0;
+
+document.getElementById("drill-down-select").addEventListener("change", () => {
+    drillDownPage = 0;
+    renderDrillDown();
+});
 
 function renderDrillDown() {
     if (!dashboardData) return;
-    const view = document.getElementById("drill-down-select").value;
+    const view      = document.getElementById("drill-down-select").value;
     const container = document.getElementById("drill-down-table");
+
+    let headers, rows;
     if (view === "batch") {
-        container.innerHTML = renderPLTable(["Batch","Items","Sold","Cost","List Price","Revenue","P/L"],
-            dashboardData.by_batch.map(r => [r.name, r.items, r.sold, `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`, `$${r.revenue.toFixed(2)}`, plCell(r.profit)]));
+        headers = ["Batch","Items","Sold","Cost","List Price","Revenue","P/L"];
+        rows    = dashboardData.by_batch.map(r => [
+            r.name, r.items, r.sold,
+            `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`,
+            `$${r.revenue.toFixed(2)}`, plCell(r.profit),
+        ]);
     } else if (view === "category") {
-        container.innerHTML = renderPLTable(["Category","Items","Sold","Cost","List Price","Revenue","P/L"],
-            dashboardData.by_category.map(r => [r.name, r.items, r.sold, `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`, `$${r.revenue.toFixed(2)}`, plCell(r.profit)]));
+        headers = ["Category","Items","Sold","Cost","List Price","Revenue","P/L"];
+        rows    = dashboardData.by_category.map(r => [
+            r.name, r.items, r.sold,
+            `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`,
+            `$${r.revenue.toFixed(2)}`, plCell(r.profit),
+        ]);
     } else {
-        container.innerHTML = renderPLTable(["Item","Batch","Category","Cost","List","Sale","Processing","Other Fees","P/L"],
-            dashboardData.items.map(r => [r.name, r.batch_name, r.category, `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`, `$${r.sale_price.toFixed(2)}`, `$${r.processing_cost.toFixed(2)}`, `$${r.other_fees.toFixed(2)}`, plCell(r.profit)]));
+        headers = ["Item","Batch","Category","Cost","List","Sale","Processing","Other Fees","P/L"];
+        rows    = dashboardData.items.map(r => [
+            r.name, r.batch_name, r.category,
+            `$${r.cost.toFixed(2)}`, `$${r.list_price.toFixed(2)}`,
+            `$${r.sale_price.toFixed(2)}`, `$${r.processing_cost.toFixed(2)}`,
+            `$${r.other_fees.toFixed(2)}`, plCell(r.profit),
+        ]);
     }
+
+    container.innerHTML = renderPLTable(headers, rows, drillDownPage);
+
+    container.querySelector(".pl-prev")?.addEventListener("click", () => { drillDownPage--; renderDrillDown(); });
+    container.querySelector(".pl-next")?.addEventListener("click", () => { drillDownPage++; renderDrillDown(); });
 }
 
 function plCell(val) {
@@ -1609,10 +1834,359 @@ function plCell(val) {
     return `<span class="pl-value ${cls}">${val >= 0 ? "+" : ""}$${val.toFixed(2)}</span>`;
 }
 
-function renderPLTable(headers, rows) {
+function renderPLTable(headers, rows, page = 0) {
     if (rows.length === 0) return '<p class="empty-state">No data yet.</p>';
-    return `<table class="pl-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+
+    const total      = rows.length;
+    const start      = page * DRILL_PAGE_SIZE;
+    const end        = Math.min(start + DRILL_PAGE_SIZE, total);
+    const pageRows   = rows.slice(start, end);
+    const totalPages = Math.ceil(total / DRILL_PAGE_SIZE);
+
+    const table = `<table class="pl-table">
+        <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+        <tbody>${pageRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+
+    if (total <= DRILL_PAGE_SIZE) return table;
+
+    const pagination = `
+        <div class="pl-pagination">
+            <button class="btn btn-sm btn-ghost pl-prev"${page === 0 ? " disabled" : ""}>← Prev</button>
+            <span class="pl-page-info">Showing ${start + 1}–${end} of ${total}</span>
+            <button class="btn btn-sm btn-ghost pl-next"${page >= totalPages - 1 ? " disabled" : ""}>Next →</button>
+        </div>`;
+
+    return table + pagination;
 }
+
+// === DASHBOARD SWITCHER ===
+let opsData = null;
+let opsBreakdownView = "batch";
+
+document.getElementById("dashboard-select").addEventListener("change", (e) => {
+    const val = e.target.value;
+    document.getElementById("dash-pl").hidden  = val !== "pl";
+    document.getElementById("dash-ops").hidden = val !== "ops";
+    if (val === "ops") loadOperational();
+});
+
+// === OPERATIONAL DASHBOARD ===
+async function loadOperational() {
+    try {
+        const res = await fetch("/api/dashboard/operational");
+        opsData = await res.json();
+        renderOps();
+    } catch (e) { console.error("Operational dashboard load failed:", e); }
+}
+
+function renderOps() {
+    if (!opsData) return;
+    renderOpsSummary(opsData.summary, opsData.aging_days);
+    renderOpsAgingTable(opsData.aging_items, opsData.aging_days);
+    renderOpsBreakdown();
+}
+
+function renderOpsSummary(s, agingDays) {
+    const sellPct = s.total > 0 ? ((s.sold / s.total) * 100).toFixed(0) : 0;
+    document.getElementById("ops-summary-cards").innerHTML = `
+        <div class="summary-card">
+            <div class="card-label">Total Items</div>
+            <div class="card-value">${s.total}</div>
+        </div>
+        <div class="summary-card">
+            <div class="card-label">Sold</div>
+            <div class="card-value">${s.sold} <span class="card-sub">(${sellPct}%)</span></div>
+        </div>
+        <div class="summary-card">
+            <div class="card-label">Active Listings</div>
+            <div class="card-value">${s.listed}</div>
+        </div>
+        <div class="summary-card${s.aging > 0 ? " negative" : ""}">
+            <div class="card-label">Aging (${agingDays}+ days)</div>
+            <div class="card-value">${s.aging}</div>
+        </div>
+        <div class="summary-card">
+            <div class="card-label">Unlisted</div>
+            <div class="card-value">${s.unlisted}</div>
+        </div>
+        <div class="summary-card">
+            <div class="card-label">Avg Days Listed</div>
+            <div class="card-value">${s.avg_days_listed}d</div>
+        </div>
+        <div class="summary-card">
+            <div class="card-label">Unsold List Value</div>
+            <div class="card-value">$${s.unsold_value.toFixed(2)}</div>
+        </div>`;
+}
+
+function renderOpsAgingTable(items, agingDays) {
+    const hintEl     = document.getElementById("ops-aging-hint");
+    const container  = document.getElementById("ops-aging-table");
+    hintEl.textContent = `Listed for more than ${agingDays} days without selling — sorted worst first`;
+
+    if (items.length === 0) {
+        container.innerHTML = '<p class="empty-state" style="margin:1.25rem 0">🎉 No aging listings right now.</p>';
+        return;
+    }
+
+    const rows = items.map(i => {
+        const isCritical = i.days_listed > agingDays * 2;
+        const badgeCls   = isCritical ? "days-badge-critical" : "days-badge-warn";
+        return `<tr>
+            <td>${escapeHtml(i.name)}</td>
+            <td>${escapeHtml(i.batch_name)}</td>
+            <td>${escapeHtml(i.category)}</td>
+            <td><span class="days-badge ${badgeCls}">${i.days_listed}d</span></td>
+            <td>$${i.list_price.toFixed(2)}</td>
+            <td>$${i.cost.toFixed(2)}</td>
+        </tr>`;
+    }).join("");
+
+    container.innerHTML = `
+        <table class="pl-table">
+            <thead><tr>
+                <th>Item</th><th>Batch</th><th>Category</th>
+                <th>Days Listed</th><th>List Price</th><th>Cost</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function renderOpsBreakdown() {
+    if (!opsData) return;
+    const container = document.getElementById("ops-breakdown-table");
+    const rows      = opsBreakdownView === "batch" ? opsData.by_batch : opsData.by_category;
+    const nameCol   = opsBreakdownView === "batch" ? "Batch" : "Category";
+
+    if (rows.length === 0) {
+        container.innerHTML = '<p class="empty-state">No data yet.</p>';
+        return;
+    }
+
+    const bodyRows = rows.map(r => `<tr>
+        <td>${escapeHtml(r.name)}</td>
+        <td>${r.total}</td>
+        <td>${r.unlisted}</td>
+        <td>${r.listed}</td>
+        <td>${r.aging > 0 ? `<span class="ops-aging-pill">${r.aging}</span>` : "—"}</td>
+        <td>${r.sold}</td>
+        <td>
+            <div class="sell-thru-bar-wrap" title="${r.pct_sold}% sold">
+                <div class="sell-thru-track">
+                    <div class="sell-thru-bar" style="width:${r.pct_sold}%"></div>
+                </div>
+                <span class="sell-thru-label">${r.pct_sold}%</span>
+            </div>
+        </td>
+        <td>$${r.unsold_value.toFixed(2)}</td>
+    </tr>`).join("");
+
+    container.innerHTML = `
+        <table class="pl-table">
+            <thead><tr>
+                <th>${nameCol}</th><th>Total</th><th>Unlisted</th><th>Listed</th>
+                <th>Aging</th><th>Sold</th><th>Sell-Through</th><th>Unsold Value</th>
+            </tr></thead>
+            <tbody>${bodyRows}</tbody>
+        </table>`;
+}
+
+document.getElementById("ops-breakdown-select").addEventListener("change", (e) => {
+    opsBreakdownView = e.target.value;
+    renderOpsBreakdown();
+});
+
+// === DASHBOARD TIMELINE ===
+let tlGran = "month";
+let tlFrom = "", tlTo = "";
+
+function tlTodayStr() { return new Date().toISOString().slice(0, 10); }
+
+function applyQuickRange(range) {
+    const today = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    let from = "", to = tlTodayStr();
+    if (range === "today") {
+        from = to;
+    } else if (range === "mtd") {
+        from = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`;
+    } else if (range === "30d") {
+        const d = new Date(today); d.setDate(d.getDate() - 30);
+        from = d.toISOString().slice(0, 10);
+    } else if (range === "ytd") {
+        from = `${today.getFullYear()}-01-01`;
+    } else { // all time
+        from = ""; to = "";
+    }
+    tlFrom = from; tlTo = to;
+    document.getElementById("tl-from").value = from;
+    document.getElementById("tl-to").value   = to;
+}
+
+function formatPeriodLabel(period) {
+    if (period.length === 4) return period; // year
+    if (period.length === 7) {              // month: YYYY-MM
+        const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const [y, m] = period.split("-");
+        return `${MONTHS[parseInt(m, 10) - 1]} '${y.slice(2)}`;
+    }
+    return period.slice(5).replace("-", "/"); // day: MM/DD
+}
+
+function niceStep(raw) {
+    const mag  = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+    const norm = raw / mag;
+    if (norm <= 1) return mag;
+    if (norm <= 2) return 2 * mag;
+    if (norm <= 5) return 5 * mag;
+    return 10 * mag;
+}
+
+async function loadTimeline() {
+    const params = new URLSearchParams({ granularity: tlGran });
+    if (tlFrom) params.set("date_from", tlFrom);
+    if (tlTo)   params.set("date_to",   tlTo);
+    try {
+        const res  = await fetch(`/api/dashboard/timeline?${params}`);
+        const data = await res.json();
+        renderTimeline(data.points);
+    } catch (e) { console.error("Timeline load failed:", e); }
+}
+
+function renderTimeline(points) {
+    const chartEl   = document.getElementById("timeline-chart");
+    const summaryEl = document.getElementById("timeline-summary");
+    if (!chartEl || !summaryEl) return;
+
+    if (points.length === 0) {
+        summaryEl.innerHTML = "";
+        chartEl.innerHTML   = '<p class="empty-state" style="margin:1.5rem 0">No sold items with a Date Sold in this range.</p>';
+        return;
+    }
+
+    // Period totals
+    const totRev    = points.reduce((s, p) => s + p.revenue,    0);
+    const totCost   = points.reduce((s, p) => s + p.cost,       0);
+    const totProfit = points.reduce((s, p) => s + p.profit,     0);
+    const totSold   = points.reduce((s, p) => s + p.items_sold, 0);
+    const pClass    = totProfit >= 0 ? "positive" : "negative";
+
+    summaryEl.innerHTML = `
+        <div class="tl-summary">
+            <div class="tl-stat">
+                <div class="tl-stat-label">Revenue</div>
+                <div class="tl-stat-val">$${totRev.toFixed(2)}</div>
+            </div>
+            <div class="tl-stat">
+                <div class="tl-stat-label">Cost</div>
+                <div class="tl-stat-val">$${totCost.toFixed(2)}</div>
+            </div>
+            <div class="tl-stat ${pClass}">
+                <div class="tl-stat-label">Profit / Loss</div>
+                <div class="tl-stat-val">${totProfit >= 0 ? "+" : "−"}$${Math.abs(totProfit).toFixed(2)}</div>
+            </div>
+            <div class="tl-stat">
+                <div class="tl-stat-label">Items Sold</div>
+                <div class="tl-stat-val">${totSold}</div>
+            </div>
+        </div>`;
+
+    // SVG bar chart
+    const W = 820, H = 240;
+    const PAD = { top: 24, right: 20, bottom: 50, left: 66 };
+    const iW  = W - PAD.left - PAD.right;
+    const iH  = H - PAD.top  - PAD.bottom;
+
+    const profits = points.map(p => p.profit);
+    const rawMax  = Math.max(...profits, 0);
+    const rawMin  = Math.min(...profits, 0);
+    const step    = niceStep((rawMax - rawMin || 1) / 5);
+    const axisMin = Math.floor(rawMin / step) * step;
+    const axisMax = Math.ceil(rawMax  / step) * step;
+    const axisRange = axisMax - axisMin || 1;
+
+    const toY  = v => PAD.top + iH * (1 - (v - axisMin) / axisRange);
+    const zeroY = toY(0);
+
+    // Y-axis grid + labels
+    const ticks = [];
+    for (let v = axisMin; v <= axisMax + step * 0.01; v = Math.round((v + step) * 1e6) / 1e6) {
+        const y = toY(v);
+        const label = v === 0 ? "$0" : `${v < 0 ? "−" : ""}$${Math.abs(v).toFixed(v % 1 ? 2 : 0)}`;
+        ticks.push(`
+            <line x1="${PAD.left}" x2="${PAD.left + iW}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"
+                  stroke="var(--border)" stroke-dasharray="4 3"/>
+            <text x="${(PAD.left - 8).toFixed(0)}" y="${(y + 4).toFixed(0)}" text-anchor="end"
+                  font-size="11" fill="var(--text-muted)">${label}</text>`);
+    }
+
+    // Bars
+    const slotW = iW / points.length;
+    const barW  = Math.min(slotW * 0.68, 56);
+
+    const bars = points.map((p, i) => {
+        const cx    = PAD.left + slotW * i + slotW / 2;
+        const bx    = cx - barW / 2;
+        const barH  = Math.abs(toY(p.profit) - zeroY);
+        const by    = p.profit >= 0 ? toY(p.profit) : zeroY;
+        const color = p.profit >= 0 ? "var(--green)" : "var(--red)";
+        const sign  = p.profit >= 0 ? "+" : "−";
+        const tip   = `${p.period}  ${sign}$${Math.abs(p.profit).toFixed(2)}\n${p.items_sold} item${p.items_sold !== 1 ? "s" : ""} sold\nRevenue: $${p.revenue.toFixed(2)} · Cost: $${p.cost.toFixed(2)}`;
+        const lbl   = formatPeriodLabel(p.period);
+        return `<g class="tl-bar">
+            <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}"
+                  width="${barW.toFixed(1)}" height="${Math.max(barH, 2).toFixed(1)}"
+                  fill="${color}" rx="3" opacity="0.85"/>
+            <title>${escapeHtml(tip)}</title>
+            <text x="${cx.toFixed(1)}" y="${(PAD.top + iH + 16).toFixed(0)}"
+                  text-anchor="middle" font-size="11" fill="var(--text-muted)">${lbl}</text>
+        </g>`;
+    }).join("");
+
+    chartEl.innerHTML = `
+        <div class="tl-chart-wrap">
+            <svg viewBox="0 0 ${W} ${H}" class="tl-chart-svg">
+                ${ticks.join("")}
+                <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + iH}"
+                      stroke="var(--border)"/>
+                <line x1="${PAD.left}" y1="${zeroY.toFixed(1)}" x2="${PAD.left + iW}" y2="${zeroY.toFixed(1)}"
+                      stroke="var(--text-muted)" stroke-width="1.5"/>
+                ${bars}
+            </svg>
+        </div>`;
+}
+
+// Timeline controls
+document.querySelectorAll(".tl-quick").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".tl-quick").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        applyQuickRange(btn.dataset.range);
+        loadTimeline();
+    });
+});
+
+document.querySelectorAll(".tl-gran").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".tl-gran").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        tlGran = btn.dataset.gran;
+        loadTimeline();
+    });
+});
+
+["tl-from", "tl-to"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+        tlFrom = document.getElementById("tl-from").value;
+        tlTo   = document.getElementById("tl-to").value;
+        document.querySelectorAll(".tl-quick").forEach(b => b.classList.remove("active"));
+        loadTimeline();
+    });
+});
+
+// Set default range (YTD) so inputs are pre-filled on page load
+applyQuickRange("ytd");
 
 // === BRANDS AUTOCOMPLETE ===
 async function loadBrands() {
@@ -1665,6 +2239,20 @@ document.getElementById("save-undo-timer-btn").addEventListener("click", () => {
     undoDeleteMs = secs * 1000;
     localStorage.setItem(UNDO_TIMER_KEY, secs);
     showToast(`Delete undo window set to ${secs} second${secs !== 1 ? "s" : ""}`);
+});
+
+// === BULK MODE GAP SETTING ===
+(function () {
+    const input = document.getElementById("bulk-gap-input");
+    if (input) input.value = Math.round(bulkGapMs / 1000);
+})();
+
+document.getElementById("save-bulk-gap-btn").addEventListener("click", () => {
+    const secs = Math.min(600, Math.max(5, parseInt(document.getElementById("bulk-gap-input").value) || 90));
+    document.getElementById("bulk-gap-input").value = secs;
+    bulkGapMs = secs * 1000;
+    localStorage.setItem(BULK_GAP_KEY, secs);
+    showToast(`Bulk mode gap set to ${secs} second${secs !== 1 ? "s" : ""}`);
 });
 
 // === PINTEREST SETTINGS ===
@@ -1764,17 +2352,61 @@ document.getElementById("pinterest-save-board-btn").addEventListener("click", as
     });
 })();
 
+// === NO-PHOTO MODAL ===
+(function () {
+    const modal    = document.getElementById("no-photo-modal");
+    const nameInput = document.getElementById("no-photo-name-input");
+    const confirmBtn = document.getElementById("no-photo-modal-confirm");
+    const cancelBtn  = document.getElementById("no-photo-modal-cancel");
+    const closeBtn   = document.getElementById("no-photo-modal-close");
+
+    let _resolve = null;
+
+    function openNoPhotoModal() {
+        return new Promise(resolve => {
+            _resolve = resolve;
+            nameInput.value = "";
+            modal.hidden = false;
+            nameInput.focus();
+        });
+    }
+
+    function closeNoPhotoModal(value) {
+        modal.hidden = true;
+        if (_resolve) { _resolve(value || null); _resolve = null; }
+    }
+
+    confirmBtn.addEventListener("click", () => {
+        const v = nameInput.value.trim();
+        if (!v) { nameInput.focus(); return; }
+        closeNoPhotoModal(v);
+    });
+    cancelBtn.addEventListener("click", () => closeNoPhotoModal(null));
+    closeBtn.addEventListener("click",  () => closeNoPhotoModal(null));
+    modal.addEventListener("click", e => { if (e.target === modal) closeNoPhotoModal(null); });
+    nameInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") { confirmBtn.click(); }
+        if (e.key === "Escape") { closeNoPhotoModal(null); }
+    });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && !modal.hidden) closeNoPhotoModal(null);
+    });
+
+    // Expose globally so attachBatchEvents can call it
+    window.openNoPhotoModal = openNoPhotoModal;
+})();
+
 // === POST WITHOUT PHOTOS ===
 document.getElementById("no-photo-btn").addEventListener("click", async () => {
-    const itemName = prompt("Enter item name:");
-    if (!itemName || !itemName.trim()) return;
+    const itemName = await window.openNoPhotoModal();
+    if (!itemName) return;
     const batchId = uploadBatchSelect.value || null;
     const category = uploadCategorySelect.value || "";
     try {
         const res = await fetch("/api/listings/no-photo", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: itemName.trim(), batch_id: batchId, category }),
+            body: JSON.stringify({ name: itemName, batch_id: batchId, category }),
         });
         const data = await res.json();
         if (!res.ok) { showToast(data.error || "Failed to create listing", true); return; }
