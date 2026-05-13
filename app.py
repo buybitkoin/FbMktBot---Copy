@@ -559,6 +559,177 @@ def delete_batch(batch_id):
     return jsonify({"ok": True})
 
 
+BULK_GROUP_PROMPT = (
+    "You will receive photos of multiple clothing items. Some photos may show the same item "
+    "from different angles; others show completely different items.\n\n"
+    "Group every photo by the unique clothing item it shows. "
+    "Return ONLY valid JSON with no markdown — an array of group objects:\n"
+    '[{"photo_indices":[0,2],"primary_index":0},{"photo_indices":[1,3,4],"primary_index":1}]\n\n'
+    "Field definitions:\n"
+    "- photo_indices: array of 0-based photo indices (matching the order photos were sent) "
+    "that belong to the same clothing item\n"
+    "- primary_index: position within photo_indices (0-based) of the clearest, most complete "
+    "photo that best represents the item for a marketplace listing\n"
+    "Every photo must appear in exactly one group. "
+    "If only one photo shows a given item, its group still has a photo_indices array with one entry."
+)
+
+
+@app.route("/api/batches/<batch_id>/bulk-analyze", methods=["POST"])
+def bulk_analyze_batch(batch_id):
+    """Accept all batch photos at once, group by clothing item via AI, create one listing per group."""
+    files = request.files.getlist("photos")
+    if not files or all(f.filename == "" for f in files):
+        return jsonify({"error": "No photos uploaded"}), 400
+
+    # 1. Save all photos to temp files
+    saved = []  # list of (temp_path, ext, original_filename)
+    for f in files:
+        if f and allowed_file(f.filename):
+            ext = f.filename.rsplit(".", 1)[1].lower()
+            temp_name = f"{uuid.uuid4().hex}.{ext}"
+            temp_path = UPLOAD_DIR / temp_name
+            f.save(temp_path)
+            saved.append((temp_path, ext, f.filename))
+
+    if not saved:
+        return jsonify({"error": "No valid image files"}), 400
+
+    n = len(saved)
+
+    # 2. Ask Claude to group photos by clothing item
+    try:
+        client = anthropic.Anthropic()
+        content = []
+        for path, ext, _ in saved:
+            shrink_image_if_needed(path)
+            data = encode_image_base64(path)
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": get_media_type(f"x.{ext}"),
+                    "data": data,
+                },
+            })
+        content.append({"type": "text", "text": BULK_GROUP_PROMPT})
+
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r'^```(?:json)?\s*', '', raw)
+            raw = re.sub(r'\s*```$', '', raw)
+        groups = json.loads(raw)
+        if not isinstance(groups, list):
+            raise ValueError("Expected a JSON array of groups")
+    except Exception as e:
+        for path, _, _ in saved:
+            path.unlink(missing_ok=True)
+        return jsonify({"error": f"AI grouping failed: {str(e)}"}), 500
+
+    # 3. Validate groups — deduplicate and clamp indices; ungrouped photos get singleton groups
+    used = set()
+    clean_groups = []
+    for g in groups:
+        indices = [
+            i for i in (g.get("photo_indices") or [])
+            if isinstance(i, int) and 0 <= i < n and i not in used
+        ]
+        if not indices:
+            continue
+        used.update(indices)
+        pri = g.get("primary_index", 0)
+        if not isinstance(pri, int) or not (0 <= pri < len(indices)):
+            pri = 0
+        clean_groups.append({"photo_indices": indices, "primary_index": pri})
+
+    # Any photos Claude omitted → each becomes its own listing
+    for i in range(n):
+        if i not in used:
+            clean_groups.append({"photo_indices": [i], "primary_index": 0})
+
+    # 4. Look up batch defaults
+    conn = get_db()
+    batch = conn.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    if not batch:
+        for path, _, _ in saved:
+            path.unlink(missing_ok=True)
+        conn.close()
+        return jsonify({"error": "Batch not found"}), 404
+
+    default_cost = (
+        round(batch["total_cost"] / batch["item_count"], 2)
+        if batch["item_count"] > 0 else 0
+    )
+    category = request.form.get("category") or ""
+
+    # 5. For each group: analyze primary photo with AI, create listing, save all group photos
+    created = []
+    moved_paths = set()
+
+    for group in clean_groups:
+        indices  = group["photo_indices"]
+        pri_pos  = group["primary_index"]          # position within indices array
+        pri_glob = indices[pri_pos]                # global photo index
+        primary_path = saved[pri_glob][0]
+
+        try:
+            ai_result = analyze_images_with_ai([primary_path])
+        except Exception:
+            continue  # skip group; temp files cleaned at end
+
+        base_filename = sanitize_filename(ai_result.get("filename", "clothing_item"))
+        listing_id = uuid.uuid4().hex[:12]
+        item_num   = next_item_number(conn)
+
+        conn.execute(
+            "INSERT INTO listings "
+            "(id, batch_id, name, description, hashtags, category, cost, item_number) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (listing_id, batch_id, ai_result["name"], ai_result["description"],
+             ai_result["hashtags"], category, default_cost, item_num),
+        )
+
+        # Primary photo first, then the rest of the group
+        ordered = [pri_glob] + [idx for idx in indices if idx != pri_glob]
+        for sort_order, glob_idx in enumerate(ordered):
+            temp_path, ext, orig_name = saved[glob_idx]
+            suffix = f"_{sort_order + 1}" if len(ordered) > 1 else ""
+            new_filename = f"{base_filename}{suffix}_{listing_id}.{ext}"
+            new_path = UPLOAD_DIR / new_filename
+            temp_path.rename(new_path)
+            moved_paths.add(str(temp_path))
+
+            photo_id = uuid.uuid4().hex[:12]
+            conn.execute(
+                "INSERT INTO photos "
+                "(id, listing_id, original_filename, stored_filename, sort_order) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (photo_id, listing_id, orig_name, new_filename, sort_order),
+            )
+
+        created.append({"id": listing_id, "item_number": item_num, "name": ai_result["name"]})
+
+    rebalance_batch_costs(conn, batch_id)
+    conn.commit()
+    conn.close()
+
+    # Clean up any temp files not moved (failed groups, etc.)
+    for path, _, _ in saved:
+        if str(path) not in moved_paths:
+            path.unlink(missing_ok=True)
+
+    return jsonify({
+        "ok": True,
+        "listings_created": len(created),
+        "listings": created,
+    })
+
+
 # --- Listing Routes ---
 
 def listing_to_dict(listing, photos, aging_days=30):

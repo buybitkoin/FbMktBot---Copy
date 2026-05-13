@@ -992,12 +992,21 @@ function renderBatchCard(batch, listings, displayListings = listings) {
                 </div>
                 <div class="inline-file-previews"></div>
                 <div class="inline-upload-actions">
-                    <button class="btn btn-sm btn-accent inline-upload-btn" disabled>
-                        <span class="btn-text">Upload &amp; Analyze</span>
-                        <span class="btn-loading" hidden><span class="spinner"></span> Analyzing…</span>
-                    </button>
-                    <button class="btn btn-sm btn-ghost" data-action="no-photo-upload">No Photo</button>
-                    <button class="btn btn-sm btn-ghost" data-action="cancel-upload">Cancel</button>
+                    <label class="bulk-mode-row" title="Drop every photo for the whole batch at once — AI groups them by clothing item and creates one listing per item">
+                        <span class="toggle-switch">
+                            <input type="checkbox" class="bulk-mode-toggle">
+                            <span class="toggle-slider"></span>
+                        </span>
+                        <span class="bulk-mode-label">Bulk Mode <span class="bulk-mode-hint">— AI sorts all photos by item</span></span>
+                    </label>
+                    <div class="inline-upload-btns">
+                        <button class="btn btn-sm btn-accent inline-upload-btn" disabled>
+                            <span class="btn-text">Upload &amp; Analyze</span>
+                            <span class="btn-loading" hidden><span class="spinner"></span> <span class="loading-text">Analyzing…</span></span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost" data-action="no-photo-upload">No Photo</button>
+                        <button class="btn btn-sm btn-ghost" data-action="cancel-upload">Cancel</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1324,23 +1333,53 @@ function attachBatchEvents() {
             updateInlinePreview(card, merged);
             inlineFileInput.value = "";
         });
+        // Bulk mode toggle — update button label when switched
+        const bulkToggle = card.querySelector(".bulk-mode-toggle");
+        if (bulkToggle) {
+            bulkToggle.addEventListener("change", () => {
+                const bulk = bulkToggle.checked;
+                const btnText = inlineUploadBtn.querySelector(".btn-text");
+                if (btnText) btnText.textContent = bulk ? "Upload & Auto-Sort" : "Upload & Analyze";
+            });
+        }
+
         inlineUploadBtn.addEventListener("click", async () => {
             const files = inlineFilesMap.get(batchId) || [];
             if (!files.length) return;
+
+            const isBulk = !isBatchless && bulkToggle?.checked && !!batchId;
+            const loadingText = inlineUploadBtn.querySelector(".loading-text");
+
             inlineUploadBtn.disabled = true;
             inlineUploadBtn.querySelector(".btn-text").hidden = true;
             inlineUploadBtn.querySelector(".btn-loading").hidden = false;
+            if (loadingText) loadingText.textContent = isBulk ? "Sorting & analyzing…" : "Analyzing…";
+
             try {
                 const fd = new FormData();
                 files.forEach(f => fd.append("photos", f));
-                if (batchId) fd.append("batch_id", batchId);
-                const res = await fetch("/api/listings", { method: "POST", body: fd });
-                const data = await res.json();
-                if (!res.ok) { showToast(data.error || "Upload failed", true); return; }
-                inlineFilesMap.delete(batchId);
-                inlineSection.hidden = true;
-                showToast("Item added! AI drafted your listing.");
-                await loadBatches();
+
+                if (isBulk) {
+                    // ── Bulk mode: one API call groups all photos, creates N listings ──
+                    const res = await fetch(`/api/batches/${batchId}/bulk-analyze`, { method: "POST", body: fd });
+                    const data = await res.json();
+                    if (!res.ok) { showToast(data.error || "Bulk analysis failed", true); return; }
+                    inlineFilesMap.delete(batchId);
+                    inlineSection.hidden = true;
+                    const n = data.listings_created;
+                    showToast(`${n} item${n !== 1 ? "s" : ""} created from ${files.length} photos!`);
+                    await loadBatches();
+                } else {
+                    // ── Normal mode: single listing per upload ──
+                    if (batchId) fd.append("batch_id", batchId);
+                    const res = await fetch("/api/listings", { method: "POST", body: fd });
+                    const data = await res.json();
+                    if (!res.ok) { showToast(data.error || "Upload failed", true); return; }
+                    inlineFilesMap.delete(batchId);
+                    inlineSection.hidden = true;
+                    showToast("Item added! AI drafted your listing.");
+                    await loadBatches();
+                }
             } catch (err) {
                 showToast("Upload failed: " + err.message, true);
             } finally {
