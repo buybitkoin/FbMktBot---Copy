@@ -17,6 +17,12 @@ let expandedBatchId = null;
 // Global collapse-all state for batch cards
 let batchesCollapsed = false;
 
+// Batch list controls
+let batchPage = 0;
+const BATCH_PAGE_SIZE = 5;
+let batchSearch = "";
+let batchSort = "date-desc";
+
 // Delete-with-undo state
 const pendingDeleteIds = new Set();
 let _undoTimer    = null;
@@ -743,16 +749,24 @@ async function loadBatchSelectDropdown() {
 }
 
 document.getElementById("create-batch-btn").addEventListener("click", async () => {
-    const name = document.getElementById("batch-name").value.trim();
+    const name      = document.getElementById("batch-name").value.trim();
+    const store     = document.getElementById("batch-store").value.trim();
+    const date      = document.getElementById("batch-date").value;
     const totalCost = parseFloat(document.getElementById("batch-total").value) || 0;
     const itemCount = parseInt(document.getElementById("batch-count").value) || 1;
     if (totalCost <= 0) { showToast("Enter the total amount spent", true); return; }
     try {
-        const res = await fetch("/api/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, total_cost: totalCost, item_count: itemCount }) });
+        const res = await fetch("/api/batches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, store, date, total_cost: totalCost, item_count: itemCount }),
+        });
         if (res.ok) {
             const data = await res.json();
             lastCreatedBatchId = data.id;
-            document.getElementById("batch-name").value = "";
+            document.getElementById("batch-name").value  = "";
+            document.getElementById("batch-store").value = "";
+            document.getElementById("batch-date").value  = "";
             document.getElementById("batch-total").value = "";
             document.getElementById("batch-count").value = "1";
             showToast("Batch created!");
@@ -899,19 +913,69 @@ function renderBatches() {
         batchesContainer.innerHTML = "";
         batchesContainer.appendChild(batchesEmpty);
         batchesEmpty.hidden = false;
+        document.getElementById("batch-pagination").hidden = true;
         return;
     }
     batchesEmpty.hidden = true;
 
-    // Batchless card always comes first
+    // --- Filter batches by search term ---
+    const q = batchSearch.toLowerCase().trim();
+    let filteredBatches = batchesCache.filter(b => {
+        if (!q) return true;
+        return (
+            (b.name  || "").toLowerCase().includes(q) ||
+            (b.store || "").toLowerCase().includes(q) ||
+            (b.date  || "").toLowerCase().includes(q)
+        );
+    });
+
+    // --- Also filter by status pill (keep only batches with matching items) ---
+    if (activeBatchFilter !== "all") {
+        filteredBatches = filteredBatches.filter(b => {
+            const allItems = batchListingsCache.filter(l => l.batch_id === b.id);
+            return allItems.some(l => l.status === activeBatchFilter);
+        });
+    }
+
+    // --- Sort batches ---
+    filteredBatches = [...filteredBatches].sort((a, b) => {
+        switch (batchSort) {
+            case "date-asc":   return (a.date  || "").localeCompare(b.date  || "");
+            case "store-asc":  return (a.store || "").localeCompare(b.store || "");
+            case "store-desc": return (b.store || "").localeCompare(a.store || "");
+            case "name-asc":   return (a.name  || "").localeCompare(b.name  || "");
+            case "name-desc":  return (b.name  || "").localeCompare(a.name  || "");
+            case "date-desc":
+            default:           return (b.date || b.created_at || "").localeCompare(a.date || a.created_at || "");
+        }
+    });
+
+    // --- Pagination ---
+    const totalBatches = filteredBatches.length;
+    const totalPages   = Math.max(1, Math.ceil(totalBatches / BATCH_PAGE_SIZE));
+    if (batchPage >= totalPages) batchPage = totalPages - 1;
+    const pageStart = batchPage * BATCH_PAGE_SIZE;
+    const pageBatches = filteredBatches.slice(pageStart, pageStart + BATCH_PAGE_SIZE);
+
+    // Update pagination controls
+    const pagEl    = document.getElementById("batch-pagination");
+    const pageLabel = document.getElementById("batch-page-label");
+    const prevBtn  = document.getElementById("batch-prev-btn");
+    const nextBtn  = document.getElementById("batch-next-btn");
+    pagEl.hidden   = totalBatches <= BATCH_PAGE_SIZE;
+    pageLabel.textContent = `Page ${batchPage + 1} of ${totalPages}`;
+    prevBtn.disabled = batchPage === 0;
+    nextBtn.disabled = batchPage >= totalPages - 1;
+
+    // --- Render ---
+    // Batchless card always comes first (not paginated)
     const htmlParts = [renderBatchlessCard(batchlessDisplay, batchlessAll.length)];
 
-    batchesCache.forEach(batch => {
+    pageBatches.forEach(batch => {
         const allItems     = batchListingsCache.filter(l => l.batch_id === batch.id);
         const displayItems = activeBatchFilter === "all"
             ? allItems
             : allItems.filter(l => l.status === activeBatchFilter);
-        if (activeBatchFilter !== "all" && displayItems.length === 0) return;
         htmlParts.push(renderBatchCard(batch, allItems, displayItems));
     });
 
@@ -927,15 +991,18 @@ function renderBatches() {
             const btn = card.querySelector('[data-action="expand-card"]');
             if (btn) { btn.innerHTML = ICON_COLLAPSE; btn.title = "Collapse"; }
         } else {
-            // Batch was deleted — clear the saved state
             expandedBatchId = null;
             document.body.classList.remove("card-expanded");
         }
     }
 
-    // Re-apply collapse-all state after re-render
+    // Re-apply collapse-all state (but not to individually-expanded cards)
     if (batchesCollapsed) {
-        batchesContainer.querySelectorAll(".batch-card").forEach(c => c.classList.add("body-collapsed"));
+        batchesContainer.querySelectorAll(".batch-card").forEach(c => {
+            if (!c.classList.contains("individually-expanded")) {
+                c.classList.add("body-collapsed");
+            }
+        });
     }
 }
 
@@ -974,12 +1041,36 @@ function updateBatchFilterCounts(listings) {
     });
 })();
 
+// Batch search
+document.getElementById("batch-search").addEventListener("input", (e) => {
+    batchSearch = e.target.value;
+    batchPage   = 0;
+    renderBatches();
+});
+
+// Batch sort
+document.getElementById("batch-sort-select").addEventListener("change", (e) => {
+    batchSort = e.target.value;
+    batchPage = 0;
+    renderBatches();
+});
+
+// Batch pagination
+document.getElementById("batch-prev-btn").addEventListener("click", () => {
+    if (batchPage > 0) { batchPage--; renderBatches(); }
+});
+document.getElementById("batch-next-btn").addEventListener("click", () => {
+    batchPage++;
+    renderBatches();
+});
+
 // Batch filter pill clicks
 document.getElementById("batch-filters").querySelectorAll(".filter-btn").forEach(btn => {
     btn.addEventListener("click", () => {
         activeBatchFilter = btn.dataset.filter;
         document.querySelectorAll("#batch-filters .filter-btn").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
+        batchPage = 0;
         renderBatches();   // instant — no fetch
     });
 });
@@ -991,11 +1082,19 @@ function renderBatchCard(batch, listings, displayListings = listings) {
     const assignedClass = isBalanced ? "balanced" : "out-of-balance";
     const totalListPrice = listings.reduce((s, l) => s + (l.list_price || 0), 0);
 
+    const storeDateMeta = [
+        batch.store ? escapeHtml(batch.store) : null,
+        batch.date  ? batch.date : null,
+    ].filter(Boolean).join(" · ");
+
     return `
-    <div class="batch-card" data-batch-id="${batch.id}" data-batch-total="${batch.total_cost}">
-        <div class="batch-card-header">
+    <div class="batch-card" data-batch-id="${batch.id}" data-batch-total="${batch.total_cost}" data-batch-date="${escapeAttr(batch.date||'')}" data-batch-store="${escapeAttr(batch.store||'')}">
+        <div class="batch-card-header" data-action="toggle-card">
             <div class="batch-info">
-                <h3>${escapeHtml(batch.name)}</h3>
+                <div class="batch-title-row">
+                    <h3>${escapeHtml(batch.name)}</h3>
+                    ${storeDateMeta ? `<span class="batch-meta-tag">${storeDateMeta}</span>` : ""}
+                </div>
                 <div class="batch-stats">
                     <span>Total: <strong>$${batch.total_cost.toFixed(2)}</strong></span>
                     <span>Items expected: <strong>${batch.item_count}</strong></span>
@@ -1007,6 +1106,9 @@ function renderBatchCard(batch, listings, displayListings = listings) {
                 ${!isBalanced && listings.length > 0 ? `<div class="balance-warning">Costs are out of balance! Adjust non-standard cost items so assigned costs equal the batch total.</div>` : ""}
             </div>
             <div class="batch-actions">
+                <button class="btn btn-sm btn-ghost batch-card-chevron" data-action="toggle-card" title="Expand/collapse this batch">
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline class="batch-chevron-poly" points="2,9 6.5,4 11,9"/></svg>
+                </button>
                 <button class="btn btn-sm btn-accent" data-action="add-item">+ Add Item</button>
                 <button class="btn btn-sm btn-save" data-action="edit-batch">Edit</button>
                 <button class="btn btn-sm btn-danger" data-action="delete-batch">Delete</button>
@@ -1338,6 +1440,8 @@ function wireBulkReviewDrag(panel, card) {
 // === BATCH EDIT MODAL ===
 const batchEditModal    = document.getElementById("batch-edit-modal");
 const batchEditName     = document.getElementById("be-name");
+const batchEditStore    = document.getElementById("be-store");
+const batchEditDate     = document.getElementById("be-date");
 const batchEditTotal    = document.getElementById("be-total");
 const batchEditExpected = document.getElementById("be-expected");
 const batchEditUploaded = document.getElementById("be-uploaded");
@@ -1348,14 +1452,26 @@ let _editingBatchId = null;
 function openBatchEditModal(batchId, card) {
     _editingBatchId = batchId;
 
-    // Populate fields from the card
-    const nameEl = card.querySelector("h3");
-    const stats  = card.querySelectorAll(".batch-stats strong");
-
-    batchEditName.value     = nameEl ? nameEl.textContent.trim() : "";
-    batchEditTotal.value    = stats[0] ? stats[0].textContent.replace("$", "").trim() : "";
-    batchEditExpected.value = stats[1] ? stats[1].textContent.trim() : "";
-    batchEditUploaded.textContent = stats[2] ? stats[2].textContent.trim() : "—";
+    // Pull data from the batch object in cache (most reliable source)
+    const batch = batchesCache.find(b => b.id === batchId);
+    if (batch) {
+        batchEditName.value     = batch.name     || "";
+        batchEditStore.value    = batch.store    || "";
+        batchEditDate.value     = batch.date     || "";
+        batchEditTotal.value    = batch.total_cost != null ? batch.total_cost.toFixed(2) : "";
+        batchEditExpected.value = batch.item_count != null ? batch.item_count : "";
+        batchEditUploaded.textContent = batch.listing_count != null ? batch.listing_count : "—";
+    } else {
+        // Fallback: read from card DOM
+        const nameEl = card.querySelector("h3");
+        const stats  = card.querySelectorAll(".batch-stats strong");
+        batchEditName.value     = nameEl ? nameEl.textContent.trim() : "";
+        batchEditStore.value    = card.dataset.batchStore || "";
+        batchEditDate.value     = card.dataset.batchDate  || "";
+        batchEditTotal.value    = stats[0] ? stats[0].textContent.replace("$", "").trim() : "";
+        batchEditExpected.value = stats[1] ? stats[1].textContent.trim() : "";
+        batchEditUploaded.textContent = stats[2] ? stats[2].textContent.trim() : "—";
+    }
 
     batchEditModal.hidden = false;
     batchEditName.focus();
@@ -1400,13 +1516,16 @@ batchEditSaveBtn.addEventListener("click", async () => {
     if (isNaN(total_cost))  { showToast("Enter a valid total", true); return; }
     if (isNaN(item_count))  { showToast("Enter a valid item count", true); return; }
 
+    const store = batchEditStore.value.trim();
+    const date  = batchEditDate.value;
+
     batchEditSaveBtn.disabled = true;
     batchEditSaveBtn.textContent = "Saving…";
     try {
         const res = await fetch(`/api/batches/${_editingBatchId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, total_cost, item_count }),
+            body: JSON.stringify({ name, store, date, total_cost, item_count }),
         });
         if (!res.ok) { const d = await res.json(); showToast(d.error || "Update failed", true); return; }
         closeBatchEditModal();
@@ -1425,6 +1544,34 @@ function attachBatchEvents() {
         const batchId = card.dataset.batchId;
 
         const isBatchless = card.dataset.batchless === "true";
+
+        // Individual card expand/collapse toggle (header click or chevron button)
+        const cardHeader = card.querySelector(".batch-card-header");
+        if (cardHeader) {
+            cardHeader.addEventListener("click", (e) => {
+                // Don't trigger if clicking an actual button (except the chevron toggle itself)
+                const clickedBtn = e.target.closest("button[data-action]");
+                if (clickedBtn && clickedBtn.dataset.action !== "toggle-card") return;
+                // Don't trigger if clicking an input/select inside the header
+                if (e.target.closest("input, select, a")) return;
+
+                const isCollapsed = card.classList.contains("body-collapsed");
+                if (isCollapsed) {
+                    card.classList.remove("body-collapsed");
+                    card.classList.add("individually-expanded");
+                } else {
+                    card.classList.add("body-collapsed");
+                    card.classList.remove("individually-expanded");
+                }
+                // Sync chevron icon
+                const poly = card.querySelector(".batch-chevron-poly");
+                if (poly) {
+                    poly.setAttribute("points", card.classList.contains("body-collapsed")
+                        ? "2,4 6.5,9 11,4"   // chevron down (collapsed)
+                        : "2,9 6.5,4 11,9"); // chevron up (expanded)
+                }
+            });
+        }
 
         // Live rebalancing of unlocked costs (not meaningful for batchless items)
         if (!isBatchless) {

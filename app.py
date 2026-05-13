@@ -172,6 +172,18 @@ def migrate_db():
         "CREATE TABLE IF NOT EXISTS brands "
         "(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)"
     )
+
+    # Batch column migrations
+    cursor2 = conn.execute("PRAGMA table_info(batches)")
+    batch_columns = [row[1] for row in cursor2.fetchall()]
+    batch_migrations = {
+        "date":  "ALTER TABLE batches ADD COLUMN date TEXT",
+        "store": "ALTER TABLE batches ADD COLUMN store TEXT NOT NULL DEFAULT ''",
+    }
+    for col, sql in batch_migrations.items():
+        if col not in batch_columns:
+            conn.execute(sql)
+
     conn.commit()
     conn.close()
 
@@ -513,6 +525,8 @@ def get_batches():
             "listing_count": len(listings),
             "assigned_cost": round(assigned_cost, 2),
             "created_at": b["created_at"],
+            "date": b["date"] or "",
+            "store": b["store"] or "",
         })
     conn.close()
     return jsonify(result)
@@ -527,23 +541,29 @@ def create_batch():
     item_count = int(data.get("item_count", 1))
     if item_count < 1:
         item_count = 1
+    batch_date  = data.get("date", "").strip() or None
+    batch_store = data.get("store", "").strip()
     conn = get_db()
     conn.execute(
-        "INSERT INTO batches (id, name, total_cost, item_count) VALUES (?, ?, ?, ?)",
-        (batch_id, name, total_cost, item_count),
+        "INSERT INTO batches (id, name, total_cost, item_count, date, store) VALUES (?, ?, ?, ?, ?, ?)",
+        (batch_id, name, total_cost, item_count, batch_date, batch_store),
     )
     conn.commit()
     conn.close()
-    return jsonify({"id": batch_id, "name": name, "total_cost": total_cost, "item_count": item_count})
+    return jsonify({"id": batch_id, "name": name, "total_cost": total_cost, "item_count": item_count,
+                    "date": batch_date or "", "store": batch_store})
 
 
 @app.route("/api/batches/<batch_id>", methods=["PUT"])
 def update_batch(batch_id):
     data = request.json
     conn = get_db()
+    batch_date  = data.get("date", "").strip() or None
+    batch_store = data.get("store", "").strip()
     conn.execute(
-        "UPDATE batches SET name = ?, total_cost = ?, item_count = ? WHERE id = ?",
-        (data.get("name", ""), float(data.get("total_cost", 0)), int(data.get("item_count", 1)), batch_id),
+        "UPDATE batches SET name = ?, total_cost = ?, item_count = ?, date = ?, store = ? WHERE id = ?",
+        (data.get("name", ""), float(data.get("total_cost", 0)), int(data.get("item_count", 1)),
+         batch_date, batch_store, batch_id),
     )
     rebalance_batch_costs(conn, batch_id)
     conn.commit()

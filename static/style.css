@@ -622,8 +622,10 @@ select:focus { outline: none; border-color: var(--accent); }
 .batch-field label { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .batch-field input {
     padding: 0.5rem 0.75rem; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--text); font-size: 0.85rem; font-family: var(--font); width: 170px;
+    border-radius: var(--radius-sm); color: var(--text); font-size: 0.85rem; font-family: var(--font);
+    width: 150px;
 }
+.batch-field input[type="date"] { width: 150px; color-scheme: dark; }
 .batch-field input:focus { outline: none; border-color: var(--accent); }
 
 .batch-created-callout {
@@ -650,6 +652,59 @@ select:focus { outline: none; border-color: var(--accent); }
 /* Collapse-all: hide everything inside the card except the header */
 .batch-card.body-collapsed > *:not(.batch-card-header) { display: none !important; }
 .batch-card.body-collapsed { border-radius: var(--radius); }
+
+/* Batch controls row (search + sort) */
+.batch-controls-row {
+    display: flex; gap: 0.75rem; align-items: center;
+    padding: 0.6rem 1.25rem 0.5rem;
+    flex-wrap: wrap;
+}
+.batch-search-input {
+    flex: 1; min-width: 200px; max-width: 380px;
+    padding: 0.45rem 0.75rem;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-size: 0.82rem; font-family: var(--font);
+}
+.batch-search-input:focus { outline: none; border-color: var(--accent); }
+.batch-sort-select {
+    padding: 0.45rem 0.75rem;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-size: 0.82rem; font-family: var(--font); cursor: pointer;
+}
+.batch-sort-select:focus { outline: none; border-color: var(--accent); }
+
+/* Batch pagination */
+.batch-pagination {
+    display: flex; align-items: center; justify-content: center; gap: 1rem;
+    padding: 0.75rem 1.25rem;
+}
+.batch-page-label { font-size: 0.8rem; color: var(--text-muted); }
+.batch-pagination .btn[disabled] { opacity: 0.35; cursor: default; pointer-events: none; }
+
+/* Batch card title row (name + meta tag) */
+.batch-title-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.batch-title-row h3 { margin-bottom: 0; }
+.batch-meta-tag {
+    font-size: 0.72rem; font-weight: 600; color: var(--text-muted);
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.15rem 0.6rem;
+    letter-spacing: 0.02em; white-space: nowrap;
+}
+
+/* Individual card collapse chevron button */
+.batch-card-chevron {
+    padding: 0.25rem 0.4rem;
+    color: var(--text-muted);
+}
+.batch-card-chevron:hover { color: var(--text); }
+
+/* Make header clickable (pointer) but only when not hovering a button */
+.batch-card-header { cursor: pointer; }
+.batch-card-header button,
+.batch-card-header input,
+.batch-card-header select { cursor: auto; }
 
 /* Full-screen expand */
 .batch-card.expanded {
@@ -688,7 +743,7 @@ body.card-expanded { overflow: hidden; }
 }
 
 .batch-card-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 1.25rem; border-bottom: 1px solid var(--border); }
-.batch-info h3 { font-size: 1.05rem; margin-bottom: 0.5rem; font-weight: 700; }
+.batch-info h3 { font-size: 1.05rem; margin-bottom: 0; font-weight: 700; }
 .batch-stats { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; font-size: 0.8rem; color: var(--text-muted); }
 .batch-stats strong { color: var(--text); }
 .batch-stats .balanced { color: var(--green); }
@@ -1227,6 +1282,7 @@ button.item-number-badge.item-number-link:hover {
     transition: border-color 0.15s;
 }
 .modal-input:focus { outline: none; border-color: var(--accent); }
+input[type="date"].modal-input { color-scheme: dark; }
 .modal-readonly {
     background: var(--bg-sidebar); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 0.5rem 0.65rem;
