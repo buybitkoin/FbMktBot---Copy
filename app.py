@@ -16,7 +16,9 @@ import urllib.error
 from flask import Flask, request, jsonify, send_from_directory, render_template, after_this_request
 from dotenv import load_dotenv
 import anthropic
-from io import BytesIO
+import csv
+from io import BytesIO, StringIO
+from datetime import datetime as dt_datetime
 from PIL import Image
 
 MAX_API_IMAGE_BYTES = 3_700_000  # ~3.7MB raw = ~4.9MB base64, under Claude's 5MB limit
@@ -1238,6 +1240,179 @@ def dashboard_operational():
         "by_batch":    batch_rows,
         "by_category": cat_rows,
     })
+
+
+## ── CSV Import helpers ──────────────────────────────────────────────────────
+
+def _clean_currency(val):
+    """Strip $, commas, spaces then return float. Returns 0.0 on failure."""
+    cleaned = re.sub(r'[^\d.\-]', '', str(val or '').strip())
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
+def _parse_date_flexible(val):
+    """Accept M/D/YYYY, M/D/YY, YYYY-MM-DD, etc. → YYYY-MM-DD str or None."""
+    if not val or not str(val).strip():
+        return None
+    val = str(val).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y"):
+        try:
+            return dt_datetime.strptime(val, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+@app.route("/api/import/preview", methods=["POST"])
+def import_preview():
+    """Parse uploaded CSV → return trimmed headers + first 5 rows + row count."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file uploaded"}), 400
+    try:
+        content = f.read().decode("utf-8-sig")  # handles Excel/Sheets BOM
+    except Exception:
+        return jsonify({"error": "Could not read file — make sure it is saved as CSV"}), 400
+
+    reader = csv.reader(StringIO(content))
+    rows   = list(reader)
+    if not rows:
+        return jsonify({"error": "File is empty"}), 400
+
+    headers = rows[0]
+    # Drop trailing blank headers (common in Google Sheets exports)
+    while headers and not headers[-1].strip():
+        headers.pop()
+
+    preview    = [r[:len(headers)] for r in rows[1:6]]
+    data_count = sum(1 for r in rows[1:] if any(c.strip() for c in r))
+
+    return jsonify({"headers": headers, "preview": preview, "total": data_count})
+
+
+@app.route("/api/import/csv", methods=["POST"])
+def import_csv():
+    """Import listings from a CSV with a JSON column-mapping."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file"}), 400
+
+    try:
+        mapping = json.loads(request.form.get("mapping", "{}"))
+    except Exception:
+        return jsonify({"error": "Invalid mapping JSON"}), 400
+
+    override_batch_id = request.form.get("batch_id") or None
+
+    try:
+        content = f.read().decode("utf-8-sig")
+    except Exception:
+        return jsonify({"error": "Could not read file"}), 400
+
+    rows      = list(csv.reader(StringIO(content)))
+    data_rows = [r for r in rows[1:] if any(c.strip() for c in r)]
+    if not data_rows:
+        return jsonify({"error": "No data rows found"}), 400
+
+    conn = get_db()
+
+    # Build batch-name → id cache; create missing batches on the fly
+    batch_cache = {b["name"].lower(): b["id"]
+                   for b in conn.execute("SELECT id, name FROM batches").fetchall()}
+
+    def get_or_create_batch(name):
+        if not name or not name.strip():
+            return None
+        key = name.strip().lower()
+        if key not in batch_cache:
+            cur = conn.execute(
+                "INSERT INTO batches (name, total_cost, item_count) VALUES (?, 0, 0)",
+                (name.strip(),)
+            )
+            batch_cache[key] = cur.lastrowid
+        return batch_cache[key]
+
+    def col(row, field):
+        idx = mapping.get(field)
+        if idx is None or idx == "":
+            return ""
+        try:
+            return row[int(idx)].strip()
+        except (IndexError, ValueError, TypeError):
+            return ""
+
+    created = 0
+    failed  = 0
+    errors  = []
+    used_batch_ids = set()
+
+    for i, row in enumerate(data_rows):
+        try:
+            name = col(row, "name") or f"Imported Item {i + 1}"
+
+            # Resolve batch
+            if override_batch_id:
+                batch_id = override_batch_id
+            else:
+                batch_name_val = col(row, "batch")
+                batch_id = get_or_create_batch(batch_name_val) if batch_name_val else None
+
+            if batch_id:
+                used_batch_ids.add(batch_id)
+
+            cost            = _clean_currency(col(row, "cost"))
+            list_price      = _clean_currency(col(row, "list_price"))
+            sale_price      = _clean_currency(col(row, "sale_price"))
+            processing_cost = _clean_currency(col(row, "processing_cost"))
+            other_fees      = _clean_currency(col(row, "other_fees"))
+
+            description = col(row, "description")
+            hashtags    = col(row, "hashtags")
+            category    = col(row, "category")
+            brand       = col(row, "brand")
+            size        = col(row, "size")
+            date_listed = _parse_date_flexible(col(row, "date_listed"))
+            date_sold   = _parse_date_flexible(col(row, "date_sold"))
+
+            # Next item_number within this batch scope
+            if batch_id is None:
+                max_num = conn.execute(
+                    "SELECT MAX(item_number) FROM listings WHERE batch_id IS NULL"
+                ).fetchone()[0] or 0
+            else:
+                max_num = conn.execute(
+                    "SELECT MAX(item_number) FROM listings WHERE batch_id = ?",
+                    (batch_id,)
+                ).fetchone()[0] or 0
+
+            conn.execute(
+                """INSERT INTO listings
+                   (name, description, hashtags, category, brand, size,
+                    cost, list_price, sale_price, processing_cost, other_fees,
+                    batch_id, date_listed, date_sold, item_number)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (name, description, hashtags, category, brand, size,
+                 cost, list_price, sale_price, processing_cost, other_fees,
+                 batch_id, date_listed, date_sold, max_num + 1)
+            )
+            if brand:
+                save_brand(conn, brand)
+            created += 1
+
+        except Exception as e:
+            failed += 1
+            errors.append(f"Row {i + 2}: {e}")
+
+    for bid in used_batch_ids:
+        rebalance_batch_costs(conn, bid)
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"created": created, "failed": failed, "errors": errors[:20]})
 
 
 @app.route("/api/listings/no-photo", methods=["POST"])

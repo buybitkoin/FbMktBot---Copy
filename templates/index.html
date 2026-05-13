@@ -98,6 +98,7 @@
             <section class="batches-section">
                 <div class="listings-section-header">
                     <h2>Your Batches</h2>
+                    <button class="btn btn-sm btn-ghost" id="open-import-btn" title="Import listings from a CSV file">⬆ Import CSV</button>
                     <div class="listing-filters" id="batch-filters">
                         <button class="filter-btn active" data-filter="all">All <span class="filter-count">0</span></button>
                         <button class="filter-btn" data-filter="unlisted">Unlisted <span class="filter-count">0</span></button>
@@ -429,6 +430,57 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" id="batch-edit-cancel">Cancel</button>
                 <button class="btn btn-accent" id="batch-edit-save">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CSV IMPORT MODAL ── -->
+    <div id="import-modal" class="modal-backdrop" hidden>
+        <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+            <div class="modal-header">
+                <h2 id="import-modal-title">Import from CSV</h2>
+                <button class="modal-close" id="import-modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="import-modal-body">
+
+                <!-- Step 1: pick file -->
+                <div id="import-step-1">
+                    <p class="import-hint">
+                        In Google Sheets: <strong>File → Download → Comma Separated Values (.csv)</strong>, then upload it here.
+                    </p>
+                    <div class="modal-field">
+                        <label for="import-file">CSV File</label>
+                        <input type="file" id="import-file" accept=".csv" class="modal-input">
+                    </div>
+                    <div class="modal-field">
+                        <label for="import-batch-override">Assign all rows to a batch (optional)</label>
+                        <select id="import-batch-override" class="modal-input">
+                            <option value="">— Use "Batch" column from CSV —</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Step 2: column mapping -->
+                <div id="import-step-2" hidden>
+                    <p class="import-hint" id="import-row-hint"></p>
+                    <div class="import-mapping-wrap">
+                        <table class="import-mapping-table">
+                            <thead><tr><th>App Field</th><th>CSV Column</th><th>Sample Value</th></tr></thead>
+                            <tbody id="import-mapping-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="import-preview-wrap" id="import-preview-wrap"></div>
+                </div>
+
+                <!-- Step 3: result -->
+                <div id="import-step-3" hidden>
+                    <div id="import-result"></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="import-modal-cancel">Cancel</button>
+                <button class="btn btn-accent" id="import-modal-action" disabled>Next: Map Columns →</button>
             </div>
         </div>
     </div>

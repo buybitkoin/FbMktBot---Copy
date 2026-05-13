@@ -1104,6 +1104,36 @@ button.item-number-badge.item-number-link:hover {
 }
 .sell-thru-label { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
 
+/* === CSV IMPORT MODAL === */
+.import-modal-card { max-width: 780px; width: 95vw; }
+.import-hint {
+    font-size: 0.83rem; color: var(--text-muted);
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 0.6rem 0.85rem;
+    margin-bottom: 1rem; line-height: 1.5;
+}
+.import-mapping-wrap { overflow-x: auto; margin-bottom: 1rem; }
+.import-mapping-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.import-mapping-table th {
+    text-align: left; padding: 0.4rem 0.6rem; font-size: 0.68rem; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+}
+.import-mapping-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.import-mapping-table tr:last-child td { border-bottom: none; }
+.import-field-label { font-weight: 500; white-space: nowrap; }
+.import-col-select { padding: 0.25rem 0.5rem; font-size: 0.8rem; width: 100%; }
+.import-sample { color: var(--text-muted); font-size: 0.78rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req { color: var(--red); }
+.import-preview-scroll { overflow-x: auto; max-height: 160px; overflow-y: auto; }
+.import-preview-table { font-size: 0.75rem; }
+.import-preview-table th, .import-preview-table td { white-space: nowrap; padding: 0.3rem 0.6rem; }
+.import-result-icon { font-size: 2.5rem; text-align: center; margin-bottom: 0.5rem; }
+.import-result-msg { text-align: center; font-size: 1rem; margin-bottom: 1rem; }
+.import-errors { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; }
+.import-errors ul { margin: 0.5rem 0 0 1rem; padding: 0; }
+.import-errors li { margin-bottom: 0.2rem; }
+
 /* === TOAST === */
 .toast {
     position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);

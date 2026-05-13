@@ -2352,6 +2352,248 @@ document.getElementById("pinterest-save-board-btn").addEventListener("click", as
     });
 })();
 
+// === CSV IMPORT MODAL ===
+(function () {
+    const IMPORT_FIELDS = [
+        { key: "name",            label: "Name / Title",    required: true  },
+        { key: "batch",           label: "Batch",           required: false },
+        { key: "category",        label: "Category",        required: false },
+        { key: "brand",           label: "Brand",           required: false },
+        { key: "size",            label: "Size",            required: false },
+        { key: "cost",            label: "Cost ($)",        required: false },
+        { key: "list_price",      label: "List Price ($)",  required: false },
+        { key: "sale_price",      label: "Sale Price ($)",  required: false },
+        { key: "processing_cost", label: "Processing ($)",  required: false },
+        { key: "other_fees",      label: "Other Fees ($)",  required: false },
+        { key: "date_listed",     label: "Date Listed",     required: false },
+        { key: "date_sold",       label: "Date Sold",       required: false },
+        { key: "description",     label: "Description",     required: false },
+        { key: "hashtags",        label: "Hashtags",        required: false },
+    ];
+
+    // Keywords that auto-map a CSV header to an app field
+    const AUTO_KEYWORDS = {
+        name:            ["item name", "name", "title", "listing title", "item"],
+        batch:           ["batch"],
+        category:        ["category", "cat", "type"],
+        brand:           ["brand"],
+        size:            ["size"],
+        cost:            ["cost", "purchase price", "buy price", "paid", "cogs"],
+        list_price:      ["list price", "listing price", "asking price"],
+        sale_price:      ["sale price", "sell price", "sold for", "sold price", "sell price (+)"],
+        processing_cost: ["processing", "processing cost", "shipping"],
+        other_fees:      ["other fees", "fees", "other fee"],
+        date_listed:     ["date listed", "list date", "listing date", "listed date", "listed"],
+        date_sold:       ["date sold", "sale date", "sold date", "sold"],
+        description:     ["description", "desc", "details"],
+        hashtags:        ["hashtags", "tags", "hash tags"],
+    };
+
+    const modal       = document.getElementById("import-modal");
+    const step1       = document.getElementById("import-step-1");
+    const step2       = document.getElementById("import-step-2");
+    const step3       = document.getElementById("import-step-3");
+    const fileInput   = document.getElementById("import-file");
+    const actionBtn   = document.getElementById("import-modal-action");
+    const cancelBtn   = document.getElementById("import-modal-cancel");
+    const closeBtn    = document.getElementById("import-modal-close");
+    const batchSelect = document.getElementById("import-batch-override");
+
+    let currentStep   = 1;
+    let csvHeaders    = [];
+    let csvPreview    = [];
+    let csvTotal      = 0;
+    let currentMapping = {};
+
+    // Open
+    document.getElementById("open-import-btn").addEventListener("click", () => {
+        resetImport();
+        modal.hidden = false;
+        // Populate batch dropdown
+        batchSelect.innerHTML = '<option value="">— Use "Batch" column from CSV —</option>';
+        batchesCache.forEach(b => {
+            const o = document.createElement("option");
+            o.value = b.id; o.textContent = b.name;
+            batchSelect.appendChild(o);
+        });
+    });
+
+    function closeImport() { modal.hidden = true; resetImport(); }
+    closeBtn.addEventListener("click", closeImport);
+    cancelBtn.addEventListener("click", closeImport);
+    modal.addEventListener("click", e => { if (e.target === modal) closeImport(); });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && !modal.hidden) closeImport();
+    });
+
+    function resetImport() {
+        currentStep = 1;
+        csvHeaders = []; csvPreview = []; csvTotal = 0; currentMapping = {};
+        step1.hidden = false; step2.hidden = true; step3.hidden = true;
+        fileInput.value = "";
+        actionBtn.textContent = "Next: Map Columns →";
+        actionBtn.disabled = true;
+    }
+
+    // File selected → enable Next button
+    fileInput.addEventListener("change", () => {
+        actionBtn.disabled = !fileInput.files.length;
+    });
+
+    // Action button — advances through steps
+    actionBtn.addEventListener("click", async () => {
+        if (currentStep === 1) await doPreview();
+        else if (currentStep === 2) await doImport();
+        else closeImport();
+    });
+
+    async function doPreview() {
+        actionBtn.disabled = true;
+        actionBtn.textContent = "Parsing…";
+        const fd = new FormData();
+        fd.append("file", fileInput.files[0]);
+        try {
+            const res  = await fetch("/api/import/preview", { method: "POST", body: fd });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                showToast(data.error || "Preview failed", true);
+                actionBtn.disabled = false;
+                actionBtn.textContent = "Next: Map Columns →";
+                return;
+            }
+            csvHeaders = data.headers;
+            csvPreview = data.preview;
+            csvTotal   = data.total;
+            renderMappingStep();
+        } catch (e) {
+            showToast("Failed to parse CSV", true);
+            actionBtn.disabled = false;
+            actionBtn.textContent = "Next: Map Columns →";
+        }
+    }
+
+    function autoDetect(header) {
+        const h = header.toLowerCase().trim();
+        for (const [field, keywords] of Object.entries(AUTO_KEYWORDS)) {
+            if (keywords.some(kw => h.includes(kw))) return field;
+        }
+        return "";
+    }
+
+    function renderMappingStep() {
+        currentStep = 2;
+        step1.hidden = true; step2.hidden = false;
+
+        // Build initial auto-detected mapping
+        currentMapping = {};
+        const usedCols = new Set();
+        IMPORT_FIELDS.forEach(({ key }) => {
+            const idx = csvHeaders.findIndex(h => autoDetect(h) === key);
+            if (idx !== -1 && !usedCols.has(idx)) {
+                currentMapping[key] = String(idx);
+                usedCols.add(idx);
+            } else {
+                currentMapping[key] = "";
+            }
+        });
+
+        const colOptions = csvHeaders.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join("");
+        const skipOption = `<option value="">(skip)</option>`;
+
+        document.getElementById("import-row-hint").textContent =
+            `${csvTotal} rows detected. Map your CSV columns to app fields below — auto-detected where possible.`;
+
+        const tbody = document.getElementById("import-mapping-body");
+        tbody.innerHTML = IMPORT_FIELDS.map(({ key, label, required }) => {
+            const sample = currentMapping[key] !== ""
+                ? escapeHtml(csvPreview[0]?.[parseInt(currentMapping[key])] ?? "")
+                : "<span class='muted'>—</span>";
+            return `<tr data-field="${key}">
+                <td class="import-field-label">${label}${required ? ' <span class="req">*</span>' : ""}</td>
+                <td>
+                    <select class="import-col-select modal-input" data-field="${key}">
+                        ${skipOption}${colOptions}
+                    </select>
+                </td>
+                <td class="import-sample" id="import-sample-${key}">${sample}</td>
+            </tr>`;
+        }).join("");
+
+        // Set selected values + wire change listeners
+        tbody.querySelectorAll(".import-col-select").forEach(sel => {
+            const field = sel.dataset.field;
+            sel.value = currentMapping[field] ?? "";
+            sel.addEventListener("change", () => {
+                currentMapping[field] = sel.value;
+                const sampleEl = document.getElementById(`import-sample-${field}`);
+                sampleEl.innerHTML = sel.value !== ""
+                    ? escapeHtml(csvPreview[0]?.[parseInt(sel.value)] ?? "")
+                    : "<span class='muted'>—</span>";
+            });
+        });
+
+        // CSV preview table
+        const previewWrap = document.getElementById("import-preview-wrap");
+        if (csvPreview.length > 0) {
+            previewWrap.innerHTML = `
+                <p class="muted" style="font-size:.78rem;margin:.75rem 0 .35rem">First ${csvPreview.length} rows:</p>
+                <div class="import-preview-scroll">
+                    <table class="pl-table import-preview-table">
+                        <thead><tr>${csvHeaders.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
+                        <tbody>${csvPreview.map(r =>
+                            `<tr>${csvHeaders.map((_, i) => `<td>${escapeHtml(r[i] ?? "")}</td>`).join("")}</tr>`
+                        ).join("")}</tbody>
+                    </table>
+                </div>`;
+        } else {
+            previewWrap.innerHTML = "";
+        }
+
+        actionBtn.textContent = `Import ${csvTotal} rows →`;
+        actionBtn.disabled = false;
+    }
+
+    async function doImport() {
+        actionBtn.disabled = true;
+        actionBtn.textContent = "Importing…";
+        const fd = new FormData();
+        fd.append("file", fileInput.files[0]);
+        fd.append("mapping", JSON.stringify(currentMapping));
+        const overrideBatch = batchSelect.value;
+        if (overrideBatch) fd.append("batch_id", overrideBatch);
+
+        try {
+            const res  = await fetch("/api/import/csv", { method: "POST", body: fd });
+            const data = await res.json();
+            currentStep = 3;
+            step2.hidden = true; step3.hidden = false;
+
+            const errHtml = data.errors?.length
+                ? `<details class="import-errors"><summary>${data.errors.length} row error(s)</summary><ul>${data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join("")}</ul></details>`
+                : "";
+
+            document.getElementById("import-result").innerHTML = `
+                <div class="import-result-icon">${data.failed === 0 ? "✅" : "⚠️"}</div>
+                <div class="import-result-msg">
+                    <strong>${data.created} listing${data.created !== 1 ? "s" : ""} imported</strong>
+                    ${data.failed > 0 ? `<span class="muted"> · ${data.failed} failed</span>` : ""}
+                </div>
+                ${errHtml}`;
+
+            actionBtn.textContent = "Done";
+            actionBtn.disabled = false;
+
+            // Refresh inventory
+            await loadBatches();
+            loadBatchSelectDropdown();
+        } catch (e) {
+            showToast("Import failed", true);
+            actionBtn.disabled = false;
+            actionBtn.textContent = `Import ${csvTotal} rows →`;
+        }
+    }
+})();
+
 // === NO-PHOTO MODAL ===
 (function () {
     const modal    = document.getElementById("no-photo-modal");
