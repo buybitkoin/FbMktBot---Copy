@@ -1348,11 +1348,12 @@ def import_csv():
             return None
         key = name.strip().lower()
         if key not in batch_cache:
-            cur = conn.execute(
-                "INSERT INTO batches (name, total_cost, item_count) VALUES (?, 0, 0)",
-                (name.strip(),)
+            new_id = uuid.uuid4().hex[:12]
+            conn.execute(
+                "INSERT INTO batches (id, name, total_cost, item_count) VALUES (?, ?, 0, 0)",
+                (new_id, name.strip())
             )
-            batch_cache[key] = cur.lastrowid
+            batch_cache[key] = new_id
         return batch_cache[key]
 
     def col(row, field):
@@ -1397,26 +1398,18 @@ def import_csv():
             date_listed = _parse_date_flexible(col(row, "date_listed"))
             date_sold   = _parse_date_flexible(col(row, "date_sold"))
 
-            # Next item_number within this batch scope
-            if batch_id is None:
-                max_num = conn.execute(
-                    "SELECT MAX(item_number) FROM listings WHERE batch_id IS NULL"
-                ).fetchone()[0] or 0
-            else:
-                max_num = conn.execute(
-                    "SELECT MAX(item_number) FROM listings WHERE batch_id = ?",
-                    (batch_id,)
-                ).fetchone()[0] or 0
+            item_num = next_item_number(conn)
+            listing_id = uuid.uuid4().hex[:12]
 
             conn.execute(
                 """INSERT INTO listings
-                   (name, description, hashtags, category, brand, size,
+                   (id, name, description, hashtags, category, brand, size,
                     cost, list_price, sale_price, processing_cost, other_fees,
                     batch_id, date_listed, date_sold, item_number)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (name, description, hashtags, category, brand, size,
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (listing_id, name, description, hashtags, category, brand, size,
                  cost, list_price, sale_price, processing_cost, other_fees,
-                 batch_id, date_listed, date_sold, max_num + 1)
+                 batch_id, date_listed, date_sold, item_num)
             )
             if brand:
                 save_brand(conn, brand)
@@ -1433,6 +1426,20 @@ def import_csv():
     conn.close()
 
     return jsonify({"created": created, "failed": failed, "errors": errors[:20]})
+
+
+@app.route("/api/nuke", methods=["DELETE"])
+def nuke_all():
+    """Delete every listing, photo, and batch. Irreversible."""
+    conn = get_db()
+    conn.execute("DELETE FROM photos")
+    conn.execute("DELETE FROM listings")
+    conn.execute("DELETE FROM batches")
+    # Reset the global item-number sequence so it starts from 0 again
+    conn.execute("DELETE FROM settings WHERE key = 'item_number_seq'")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/listings/no-photo", methods=["POST"])

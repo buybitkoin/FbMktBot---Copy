@@ -364,6 +364,12 @@
                             <button class="btn btn-sm btn-accent" id="save-bulk-gap-btn">Save</button>
                         </div>
                     </div>
+                    <!-- Danger Zone -->
+                    <div class="settings-group settings-danger-zone">
+                        <h3>Danger Zone</h3>
+                        <p class="muted">Permanently delete all listings, photos, and batches. This cannot be undone.</p>
+                        <button class="btn btn-danger" id="open-nuke-btn">Delete All Data…</button>
+                    </div>
                     <!-- Pinterest -->
                     <div class="settings-group">
                         <h3>Pinterest</h3>
@@ -423,6 +429,27 @@
             <option value="One Size">
         </datalist>
     </main>
+
+    <!-- ==================== NUKE CONFIRMATION MODAL ==================== -->
+    <div id="nuke-modal" class="modal-backdrop" hidden>
+        <div class="modal-card nuke-modal-card" role="dialog" aria-modal="true" aria-labelledby="nuke-modal-title">
+            <div class="modal-header nuke-modal-header">
+                <h2 id="nuke-modal-title">⚠️ Delete All Data</h2>
+                <button class="modal-close" id="nuke-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="nuke-warning">This will permanently delete <strong>every listing, photo, and batch</strong> in FlipStack. There is no undo.</p>
+                <p class="muted" style="margin-top:1rem;font-size:0.85rem">To confirm, type the following phrase exactly:</p>
+                <div class="nuke-phrase-box" id="nuke-phrase"></div>
+                <input type="text" id="nuke-confirm-input" class="nuke-confirm-input" placeholder="Type the phrase above…" autocomplete="off" spellcheck="false">
+                <p class="nuke-match-hint" id="nuke-match-hint"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="nuke-cancel-btn">Cancel</button>
+                <button class="btn btn-danger" id="nuke-confirm-btn" disabled>Delete Everything</button>
+            </div>
+        </div>
+    </div>
 
     <!-- ==================== BATCH EDIT MODAL ==================== -->
     <div id="batch-edit-modal" class="modal-backdrop" hidden>

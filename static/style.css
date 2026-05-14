@@ -287,6 +287,52 @@ select:focus { outline: none; border-color: var(--accent); }
 
 .settings-group { margin-bottom: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .settings-group:first-child { border-top: none; padding-top: 0; }
+
+/* Danger zone settings group */
+.settings-danger-zone {
+    border-top: 1px solid rgba(255, 107, 107, 0.3);
+    background: rgba(255, 107, 107, 0.04);
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+    margin-top: 2rem;
+}
+.settings-danger-zone h3 { color: var(--red); }
+
+/* Nuke confirmation modal */
+.nuke-modal-card { max-width: 480px; }
+.nuke-modal-header { border-bottom-color: rgba(255, 107, 107, 0.3); }
+.nuke-modal-header h2 { color: var(--red); }
+.nuke-warning {
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.25);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem 1rem;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+.nuke-phrase-box {
+    margin: 0.75rem 0 0.5rem;
+    padding: 0.65rem 1rem;
+    background: var(--bg-input);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 0.9rem;
+    color: var(--text);
+    letter-spacing: 0.01em;
+    user-select: all;
+}
+.nuke-confirm-input {
+    width: 100%; padding: 0.55rem 0.75rem; box-sizing: border-box;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-size: 0.88rem; font-family: var(--font);
+    transition: border-color 0.15s;
+}
+.nuke-confirm-input:focus { outline: none; border-color: var(--red); }
+.nuke-match-hint { font-size: 0.78rem; margin-top: 0.35rem; min-height: 1.1em; }
+.nuke-hint-ok  { color: var(--green); }
+.nuke-hint-bad { color: var(--red); }
 .settings-group h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.4rem; }
 .settings-group p { margin-bottom: 0.5rem; }
 .settings-group textarea {
@@ -922,7 +968,29 @@ button.item-number-badge.item-number-link:hover {
     width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent);
 }
 .item-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.batch-table-actions { display: flex; justify-content: flex-end; padding-top: 0.75rem; }
+.batch-table-actions {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.75rem; padding-top: 0.75rem; flex-wrap: wrap;
+}
+
+/* Checkbox column — narrow, no padding waste */
+.bl-check-col { width: 32px; padding-left: 0.6rem !important; padding-right: 0.25rem !important; }
+
+/* Assign bar (shown when ≥1 item checked) */
+.bl-assign-bar {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+}
+.bl-assign-bar[hidden] { display: none; }
+.bl-selected-count {
+    font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;
+}
+.bl-assign-select {
+    padding: 0.35rem 0.6rem; font-size: 0.82rem;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); font-family: var(--font);
+    min-width: 160px; cursor: pointer;
+}
+.bl-assign-select:focus { outline: none; border-color: var(--accent); }
 .batch-empty-items { padding: 1.5rem; text-align: center; }
 
 /* === DASHBOARD SWITCHER === */

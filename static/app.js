@@ -75,6 +75,98 @@ document.getElementById("settings-cog").addEventListener("click", () => { settin
 document.getElementById("settings-close").addEventListener("click", () => { settingsOverlay.hidden = true; });
 settingsOverlay.addEventListener("click", (e) => { if (e.target === settingsOverlay) settingsOverlay.hidden = true; });
 
+// === NUKE MODAL ===
+(function () {
+    const WORD_BANK = [
+        ["selling", "thrifted", "flipping", "resale", "clothing", "vintage", "inventory", "batches", "listings", "photos"],
+        ["permanently", "completely", "entirely", "forever", "instantly", "irreversibly"],
+        ["deletes", "removes", "erases", "wipes", "clears", "destroys"],
+        ["all", "every", "each"],
+        ["data", "record", "item", "listing", "entry"],
+    ];
+
+    function randomPhrase() {
+        // Pick one word from each group to form a ~5-word sentence
+        const words = WORD_BANK.map(group => group[Math.floor(Math.random() * group.length)]);
+        // Capitalize first word, end with period
+        words[0] = words[0].charAt(0).toUpperCase() + words[0].slice(1);
+        return words.join(" ") + ".";
+    }
+
+    let currentPhrase = "";
+
+    const modal       = document.getElementById("nuke-modal");
+    const phraseEl    = document.getElementById("nuke-phrase");
+    const inputEl     = document.getElementById("nuke-confirm-input");
+    const hintEl      = document.getElementById("nuke-match-hint");
+    const confirmBtn  = document.getElementById("nuke-confirm-btn");
+    const cancelBtn   = document.getElementById("nuke-cancel-btn");
+    const closeBtn    = document.getElementById("nuke-modal-close");
+
+    function openNukeModal() {
+        currentPhrase = randomPhrase();
+        phraseEl.textContent = currentPhrase;
+        inputEl.value = "";
+        hintEl.textContent = "";
+        hintEl.className = "nuke-match-hint";
+        confirmBtn.disabled = true;
+        modal.hidden = false;
+        // Short delay so the modal renders before focusing
+        setTimeout(() => inputEl.focus(), 60);
+    }
+
+    function closeNukeModal() {
+        modal.hidden = true;
+        inputEl.value = "";
+    }
+
+    inputEl.addEventListener("input", () => {
+        const val = inputEl.value;
+        const matches = val === currentPhrase;
+        confirmBtn.disabled = !matches;
+
+        if (!val) {
+            hintEl.textContent = "";
+            hintEl.className = "nuke-match-hint";
+        } else if (matches) {
+            hintEl.textContent = "✓ Phrase matches";
+            hintEl.className = "nuke-match-hint nuke-hint-ok";
+        } else {
+            hintEl.textContent = "Phrase does not match";
+            hintEl.className = "nuke-match-hint nuke-hint-bad";
+        }
+    });
+
+    confirmBtn.addEventListener("click", async () => {
+        if (inputEl.value !== currentPhrase) return;
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = "Deleting…";
+        try {
+            const res = await fetch("/api/nuke", { method: "DELETE" });
+            if (!res.ok) { showToast("Delete failed — please try again", true); return; }
+            closeNukeModal();
+            // Clear all caches and re-render from scratch
+            batchesCache = [];
+            batchListingsCache = [];
+            listingsCache = [];
+            renderBatches();
+            renderListings();
+            loadBatchSelectDropdown();
+            showToast("All data deleted.");
+        } catch {
+            showToast("Delete failed — please try again", true);
+        } finally {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = "Delete Everything";
+        }
+    });
+
+    document.getElementById("open-nuke-btn").addEventListener("click", openNukeModal);
+    cancelBtn.addEventListener("click", closeNukeModal);
+    closeBtn.addEventListener("click", closeNukeModal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) closeNukeModal(); });
+})();
+
 // === DRAG & DROP ===
 dropzone.addEventListener("click", () => fileInput.click());
 dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
@@ -805,7 +897,7 @@ function renderBatchlessCard(displayListings, totalCount) {
             <div class="table-scroll-wrap">
             <table class="inventory-table">
                 <thead><tr>
-                    <th class="sort-col" data-col="0">Batch <span class="sort-icon"></span></th>
+                    <th class="center-cell bl-check-col"><input type="checkbox" class="bl-select-all" title="Select all"></th>
                     <th class="sort-col" data-col="1"># <span class="sort-icon"></span></th>
                     <th>Photo</th>
                     <th class="sort-col" data-col="3">Name <span class="sort-icon"></span></th>
@@ -833,10 +925,7 @@ function renderBatchlessCard(displayListings, totalCount) {
                             : "<span class='muted'>—</span>";
                         const pendingClass = pendingDeleteIds.has(l.id) ? ' class="row-pending-delete"' : '';
                         return `<tr data-listing-id="${l.id}"${pendingClass}>
-                            <td><select class="table-select" data-field="batch_id">
-                                <option value="">— Unassigned —</option>
-                                ${batchOpts}
-                            </select></td>
+                            <td class="center-cell bl-check-col"><input type="checkbox" class="bl-row-check"></td>
                             <td class="center-cell">${itemNum}</td>
                             <td>${thumb}</td>
                             <td class="item-name" title="${escapeAttr(l.name)}">${escapeHtml(l.name)}</td>
@@ -859,7 +948,17 @@ function renderBatchlessCard(displayListings, totalCount) {
                 </tbody>
             </table>
             </div>
-            <div class="batch-table-actions"><button class="btn btn-sm btn-save" data-action="save-batchless">Save All</button></div>
+            <div class="batch-table-actions">
+                <div class="bl-assign-bar" hidden>
+                    <span class="bl-selected-count"></span>
+                    <select class="bl-assign-select table-select">
+                        <option value="">Select batch…</option>
+                        ${batchOpts}
+                    </select>
+                    <button class="btn btn-sm btn-accent" data-action="assign-to-batch">Assign to Batch</button>
+                </div>
+                <button class="btn btn-sm btn-save" data-action="save-batchless">Save All</button>
+            </div>
         </div>`;
     }
 
@@ -870,7 +969,7 @@ function renderBatchlessCard(displayListings, totalCount) {
             <div class="batch-info">
                 <h3>Unassigned Items <span class="batchless-count-badge">${totalCount}</span></h3>
                 <div class="batch-stats">
-                    <span class="muted" style="font-size:0.75rem">Not linked to any batch &mdash; select a batch in the table and Save All to move items.</span>
+                    <span class="muted" style="font-size:0.75rem">Not linked to any batch &mdash; check items and use Assign to Batch to move them.</span>
                 </div>
             </div>
             <div class="batch-actions">
@@ -1555,6 +1654,15 @@ batchEditSaveBtn.addEventListener("click", async () => {
     }
 });
 
+function syncBlAssignBar(card) {
+    const bar      = card.querySelector(".bl-assign-bar");
+    const countEl  = card.querySelector(".bl-selected-count");
+    if (!bar) return;
+    const n = card.querySelectorAll(".bl-row-check:checked").length;
+    bar.hidden = n === 0;
+    if (countEl) countEl.textContent = `${n} item${n !== 1 ? "s" : ""} selected`;
+}
+
 function attachBatchEvents() {
     document.querySelectorAll(".batch-card").forEach(card => {
         const batchId = card.dataset.batchId;
@@ -1587,6 +1695,27 @@ function attachBatchEvents() {
                     poly.setAttribute("points", card.classList.contains("body-collapsed")
                         ? "2,4 6.5,9 11,4"   // chevron down (collapsed)
                         : "2,9 6.5,4 11,9"); // chevron up (expanded)
+                }
+            });
+        }
+
+        // Batchless-only: checkbox selection + assign bar
+        if (isBatchless) {
+            card.addEventListener("change", (e) => {
+                if (e.target.classList.contains("bl-select-all")) {
+                    // Toggle every row checkbox to match the header
+                    card.querySelectorAll(".bl-row-check").forEach(cb => { cb.checked = e.target.checked; });
+                    syncBlAssignBar(card);
+                } else if (e.target.classList.contains("bl-row-check")) {
+                    // Update header checkbox state
+                    const allChecks  = [...card.querySelectorAll(".bl-row-check")];
+                    const nChecked   = allChecks.filter(cb => cb.checked).length;
+                    const selectAll  = card.querySelector(".bl-select-all");
+                    if (selectAll) {
+                        selectAll.checked       = nChecked === allChecks.length && allChecks.length > 0;
+                        selectAll.indeterminate  = nChecked > 0 && nChecked < allChecks.length;
+                    }
+                    syncBlAssignBar(card);
                 }
             });
         }
@@ -1831,13 +1960,9 @@ function attachBatchEvents() {
             if (action === "save-batchless") {
                 const rows = card.querySelectorAll("tbody tr");
                 let anyFailed = false;
-                let anyMoved = false;
                 for (const row of rows) {
                     const listingId = row.dataset.listingId;
-                    const selectedBatchId = row.querySelector('[data-field="batch_id"]').value || null;
-                    if (selectedBatchId) anyMoved = true;
                     const body = {
-                        batch_id: selectedBatchId,
                         cost: parseFloat(row.querySelector('[data-field="cost"]').value) || 0,
                         cost_locked: row.querySelector('[data-field="cost_locked"]').checked ? 1 : 0,
                         list_price: parseFloat(row.querySelector('[data-field="list_price"]').value) || 0,
@@ -1849,8 +1974,7 @@ function attachBatchEvents() {
                         size: row.querySelector('[data-field="size"]').value,
                         date_listed: row.querySelector('[data-field="date_listed"]').value,
                         date_sold: row.querySelector('[data-field="date_sold"]').value,
-                        // Let backend rebalance the target batch when items are assigned
-                        skip_rebalance: false,
+                        skip_rebalance: true,
                     };
                     try {
                         await fetch(`/api/listings/${listingId}`, {
@@ -1862,12 +1986,35 @@ function attachBatchEvents() {
                 }
                 loadBrands();
                 await loadBatches();
+                showToast(anyFailed ? "Some items failed to save" : "All changes saved!", anyFailed);
+                return;
+            }
+            if (action === "assign-to-batch") {
+                const batchId = card.querySelector(".bl-assign-select")?.value;
+                if (!batchId) { showToast("Select a batch first", true); return; }
+                const checkedRows = [...card.querySelectorAll(".bl-row-check:checked")]
+                    .map(cb => cb.closest("tr"))
+                    .filter(Boolean);
+                if (!checkedRows.length) { showToast("No items selected", true); return; }
+                const batchName = batchesCache.find(b => b.id === batchId)?.name || "batch";
+                let anyFailed = false;
+                for (const row of checkedRows) {
+                    const listingId = row.dataset.listingId;
+                    try {
+                        await fetch(`/api/listings/${listingId}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ batch_id: batchId, skip_rebalance: false }),
+                        });
+                    } catch { anyFailed = true; }
+                }
+                loadBrands();
+                await loadBatches();
                 if (anyFailed) {
-                    showToast("Some items failed to save", true);
-                } else if (anyMoved) {
-                    showToast("Saved! Assigned items have been moved to their batches.");
+                    showToast("Some items failed to assign", true);
                 } else {
-                    showToast("All changes saved!");
+                    const n = checkedRows.length;
+                    showToast(`${n} item${n !== 1 ? "s" : ""} assigned to "${batchName}"!`);
                 }
                 return;
             }
